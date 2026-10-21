@@ -4,7 +4,9 @@ services:
     image: gloss:latest
     container_name: gloss
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     ports:
       - "3100:3100"
     volumes:

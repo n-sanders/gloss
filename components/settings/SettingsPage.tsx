@@ -8,7 +8,7 @@ import { SLOTS, fitsSlot, type ModelOption, type Slot } from "@/lib/models";
 import { TopicManager } from "./TopicManager";
 
 type SlotState = { key: Slot; saved: string | null; fromEnv: string | null; model: string; fallback: string };
-type Loaded = { ai: boolean; search: boolean; libraryName: string; slots: SlotState[] };
+type Loaded = { ai: boolean; search: boolean; passphraseIsDefault: boolean; libraryName: string; slots: SlotState[] };
 
 async function put(body: object): Promise<string | null> {
   try {
@@ -20,7 +20,7 @@ async function put(body: object): Promise<string | null> {
   }
 }
 
-/** The family's settings, shared by every computer: the library's name, its topics, and which model does each job. */
+/** The family's settings, shared by every computer: the library's name, its passphrase, its topics, and which model does each job. */
 export function SettingsPage() {
   const [data, setData] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState(false);
@@ -60,13 +60,21 @@ export function SettingsPage() {
               <LibraryName initial={data.libraryName} />
             </Section>
 
+            <Section title="Passphrase">
+              <Passphrase isDefault={data.passphraseIsDefault} onSaved={load} />
+            </Section>
+
             <Section title="Topics">
               <TopicManager />
             </Section>
 
             <Section title="AI">
-              <Status ok={data.ai} yes="OpenRouter is connected." no="No OpenRouter key: set OPENROUTER_API_KEY on the server to turn on answers, sorting and painted covers." />
-              <Status ok={data.search} yes="Web search (Exa) is on for answers." no="Web search is off: set EXA_API_KEY to let answers look things up." />
+              <Status ok={data.ai} yes="OpenRouter is connected." no="Paste an OpenRouter key to turn on answers, sorting and painted covers." />
+              <Status ok={data.search} yes="Web search (Exa) is on for answers." no="Paste an Exa key to let answers look things up." />
+              <div className="mt-5 flex flex-col gap-4">
+                <KeyField id="openrouter-key" label="OpenRouter key" configured={data.ai} field="openrouterKey" onSaved={load} />
+                <KeyField id="exa-key" label="Exa key" configured={data.search} field="exaKey" onSaved={load} />
+              </div>
               <p className="mt-6 text-[13.5px] leading-relaxed text-ink-3">
                 Each job uses a model from{" "}
                 <a href="https://openrouter.ai/models" target="_blank" rel="noopener noreferrer" className="text-ink-2 underline decoration-rule-strong underline-offset-4 hover:text-ink">
@@ -143,6 +151,145 @@ function LibraryName({ initial }: { initial: string }) {
           {value.trim() === saved && saved ? <Check size={14} /> : null}
           {value.trim() === saved && saved ? "Saved" : "Save"}
         </button>
+      </div>
+      {err && <p className="mt-2 text-[12.5px] text-rubric-text">{err}</p>}
+    </div>
+  );
+}
+
+const fieldClass = "h-10 min-w-0 flex-1 rounded-xl border border-rule bg-transparent px-3.5 text-[14.5px] outline-none placeholder:text-ink-4 focus:border-rule-strong";
+
+function Passphrase({ isDefault, onSaved }: { isDefault: boolean; onSaved: () => void }) {
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ready = next.trim().length > 0 && next === again;
+
+  const save = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setNote(null);
+    const e = await put({ passphrase: next });
+    setBusy(false);
+    setErr(e);
+    if (!e) {
+      setNext("");
+      setAgain("");
+      onSaved();
+    }
+  };
+
+  const signOut = async () => {
+    if (busy) return;
+    setBusy(true);
+    const e = await put({ signOut: true });
+    setBusy(false);
+    setErr(e);
+    if (!e) setNote("Done. The other computers will ask for the passphrase again.");
+  };
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <p className="text-[14px] leading-relaxed text-ink-2">
+        What the family types once on each computer.
+        {/* "gloss" is DEFAULT_PASSPHRASE in lib/secrets.ts. */}
+        {isDefault && " It is still gloss. Change it the first time you use the library."}
+      </p>
+      <div className="mt-3 flex flex-col gap-2">
+        <input
+          id="passphrase-new"
+          type="password"
+          autoComplete="new-password"
+          value={next}
+          maxLength={200}
+          placeholder="New passphrase"
+          aria-label="New passphrase"
+          onChange={(e) => setNext(e.target.value)}
+          className={fieldClass}
+        />
+        <input
+          id="passphrase-again"
+          type="password"
+          autoComplete="new-password"
+          value={again}
+          maxLength={200}
+          placeholder="Repeat it"
+          aria-label="Repeat the passphrase"
+          onChange={(e) => setAgain(e.target.value)}
+          className={fieldClass}
+        />
+        <div className="flex flex-wrap gap-2">
+          <button type="submit" className="add-btn" disabled={!ready || busy}>
+            Save
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void signOut()}
+            className="inline-flex h-10 items-center rounded-full border border-rule px-4 text-[13.5px] text-ink-2 transition-colors hover:border-rule-strong hover:text-ink disabled:opacity-50"
+          >
+            Sign every computer out
+          </button>
+        </div>
+      </div>
+      {again.length > 0 && next !== again && <p className="mt-2 text-[12.5px] text-ink-3">Those don&rsquo;t match.</p>}
+      <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">Changing the passphrase, or signing every computer out, keeps this one unlocked. The others ask again.</p>
+      {note && <p className="mt-2 text-[12.5px] text-ink-2">{note}</p>}
+      {err && <p className="mt-2 text-[12.5px] text-rubric-text">{err}</p>}
+    </form>
+  );
+}
+
+function KeyField({ id, label, configured, field, onSaved }: { id: string; label: string; configured: boolean; field: "openrouterKey" | "exaKey"; onSaved: () => void }) {
+  const [value, setValue] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const save = async (v: string | null) => {
+    if (busy) return;
+    setBusy(true);
+    const e = await put({ [field]: v });
+    setBusy(false);
+    setErr(e);
+    if (!e) {
+      setValue("");
+      onSaved();
+    }
+  };
+
+  return (
+    <div>
+      <label htmlFor={id} className="text-[14px] text-ink-2">
+        {label}
+      </label>
+      <div className="mt-2 flex gap-2">
+        <input
+          id={id}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={value}
+          maxLength={400}
+          placeholder={configured ? "A key is saved" : "Paste a key"}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && value.trim() && void save(value.trim())}
+          className={`${fieldClass} font-mono`}
+        />
+        <button type="button" className="add-btn" disabled={busy || !value.trim()} onClick={() => void save(value.trim())}>
+          Save
+        </button>
+        {configured && (
+          <button type="button" className="inline-flex h-10 items-center px-2 text-[13.5px] text-ink-3 transition-colors hover:text-ink disabled:opacity-50" disabled={busy} onClick={() => void save(null)}>
+            Clear
+          </button>
+        )}
       </div>
       {err && <p className="mt-2 text-[12.5px] text-rubric-text">{err}</p>}
     </div>

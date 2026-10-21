@@ -9,6 +9,7 @@
  */
 
 import type { Source } from "./models";
+import { exaKey } from "./secrets";
 
 const EXA_URL = "https://api.exa.ai/search";
 /** What a search costs when Exa does not say, added to the answer's receipt. */
@@ -30,13 +31,13 @@ export const WEB_TOOL = {
 } as const;
 const RESULTS = 5;
 
-export const searchEnabled = () => Boolean(process.env.EXA_API_KEY);
+export const searchEnabled = () => Boolean(exaKey());
 
 export type WebResults = { sources: Source[]; excerpts: string[]; usd: number };
 
 /** Null when search is off, fails or times out: the answer goes ahead without it. */
 export async function webSearch(query: string, signal?: AbortSignal): Promise<WebResults | null> {
-  const key = process.env.EXA_API_KEY;
+  const key = exaKey();
   if (!key || !query.trim()) return null;
   try {
     const res = await fetch(EXA_URL, {

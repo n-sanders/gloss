@@ -1,28 +1,25 @@
 /**
  * The family passphrase. A computer that knows it gets a cookie holding an
- * HMAC of the passphrase, keyed by SESSION_SECRET: the cookie proves the
+ * HMAC of the passphrase, keyed by the signing secret: the cookie proves the
  * passphrase without containing it, and changing either one signs every
  * computer out.
  *
+ * Both are read from the database, then the environment. See lib/secrets.ts.
+ *
  * Browsers cap a cookie's life at about 400 days, so the proxy hands out a
  * fresh one on every page visit: a computer used once a year stays unlocked.
- *
- * With no FAMILY_PASSPHRASE set the gate is off, which is handy for local
- * development and nothing else.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { passphrase, sessionSecret } from "./secrets";
 
 export const GATE_COOKIE = "gloss_family";
 export const GATE_MAX_AGE = 400 * 24 * 60 * 60;
 
-const passphrase = () => process.env.FAMILY_PASSPHRASE?.trim() || "";
-
 export const gateOn = () => passphrase().length > 0;
 
 function sign(value: string): string {
-  const secret = process.env.SESSION_SECRET || `gloss:${passphrase()}`;
-  return createHmac("sha256", secret).update(`family:${value}`).digest("base64url");
+  return createHmac("sha256", sessionSecret()).update(`family:${value}`).digest("base64url");
 }
 
 function same(a: string, b: string): boolean {

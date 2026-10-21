@@ -8,6 +8,7 @@
  */
 
 import { modelLabel, type StreamEvent, type Usage } from "./models";
+import { openRouterKey } from "./secrets";
 
 export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const APP_UA = "Gloss/0.2";
@@ -30,10 +31,10 @@ type Chunk = {
   error?: { message?: string };
 };
 
-export const NOT_CONFIGURED = "AI is not set up on this server. Add OPENROUTER_API_KEY to turn it on.";
+export const NOT_CONFIGURED = "AI is not set up. Add an OpenRouter key in Settings to turn it on.";
 
 function key(): string | null {
-  return process.env.OPENROUTER_API_KEY?.trim() || null;
+  return openRouterKey();
 }
 
 function headers(apiKey: string) {
@@ -63,7 +64,7 @@ function errorMessage(status: number, body: string): string {
   } catch {
     /* not JSON */
   }
-  if (status === 401) return "OpenRouter rejected the API key. Check OPENROUTER_API_KEY.";
+  if (status === 401) return "OpenRouter rejected the API key. Check it in Settings.";
   if (status === 402) return "The OpenRouter account is out of credit.";
   if (status === 429) return "OpenRouter is rate limiting. Wait a moment and try again.";
   return `OpenRouter ${status}: ${msg}`;
