@@ -11,7 +11,7 @@ import { imageStem, leadImage, prepareImages } from "@/lib/images";
 import { Readability } from "@mozilla/readability";
 import { htmlToBlocks } from "@/lib/html-to-blocks";
 import { slugify, tidyTitle, undash, type Article, type Block } from "@/lib/article";
-import { APP_UA } from "@/lib/together";
+import { APP_UA } from "@/lib/openrouter";
 
 const MAX_BYTES = 6_000_000;
 const MAX_PDF_BYTES = 25_000_000;
@@ -145,6 +145,69 @@ export type FetchResult =
   | { ok: true; pdf: ArrayBuffer; name: string }
   | { ok: false; error: string; status: number };
 
+/** Fetch a public page, following redirects by hand so every hop gets the same private-address check. */
+async function fetchPublic(checked: URL, accept: string): Promise<{ res: Response | null; target: URL } | { error: string; status: number }> {
+  let res: Response | null = null;
+  let target: URL = checked;
+  try {
+    for (let hop = 0; hop < 5; hop++) {
+      res = await fetch(target, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(15_000),
+        headers: { "User-Agent": `Mozilla/5.0 (compatible; ${APP_UA}; +reader)`, Accept: accept },
+      });
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+      if (!location) break;
+      const next = await safeUrl(new URL(location, target).toString());
+      if (typeof next === "string") return { error: next, status: 400 };
+      target = next;
+    }
+  } catch {
+    return { error: "The site did not answer in time.", status: 502 };
+  }
+  return { res, target };
+}
+
+export type PageMeta = { url: string; title?: string; description?: string; image?: string; site?: string };
+
+/** What a link says about itself (title, description, og:image), for an activity's details. Nothing of its text is kept. */
+export async function fetchMeta(raw: string): Promise<{ ok: true; meta: PageMeta } | { ok: false; error: string; status: number }> {
+  const checked = await safeUrl(raw.trim());
+  if (typeof checked === "string") return { ok: false, error: checked, status: 400 };
+  const got = await fetchPublic(checked, "text/html,application/xhtml+xml");
+  if ("error" in got) return { ok: false, ...got };
+  const { res, target } = got;
+  if (!res || !res.ok) return { ok: false, error: `The site answered ${res?.status || "nothing"}.`, status: 502 };
+  if (!(res.headers.get("content-type") ?? "").includes("html")) return { ok: true, meta: { url: target.toString() } };
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength > MAX_BYTES) return { ok: true, meta: { url: target.toString() } };
+  const { document } = parseHTML(new TextDecoder().decode(buf));
+  const prop = (...names: string[]) => {
+    for (const n of names) {
+      const v = document.querySelector(`meta[property="${n}"], meta[name="${n}"]`)?.getAttribute("content")?.trim();
+      if (v) return v;
+    }
+    return undefined;
+  };
+  let image = prop("og:image", "og:image:url", "twitter:image");
+  try {
+    image = image ? new URL(image, target).toString() : undefined;
+  } catch {
+    image = undefined;
+  }
+  const title = prop("og:title", "twitter:title") ?? document.querySelector("title")?.textContent?.trim();
+  return {
+    ok: true,
+    meta: {
+      url: target.toString(),
+      title: title ? tidyTitle(undash(title)).slice(0, 200) : undefined,
+      description: prop("og:description", "description", "twitter:description")?.slice(0, 400),
+      image: image && /^https?:/.test(image) ? image : undefined,
+      site: prop("og:site_name") ?? target.hostname.replace(/^www\./, ""),
+    },
+  };
+}
+
 /** `pdf`: the caller can read a PDF itself, so a PDF link comes back as the file instead of an error. */
 export async function fetchArticle(raw: string, opts: { pdf?: boolean } = {}): Promise<FetchResult> {
   const checked = await safeUrl((opts.pdf && arxivFullText(raw, "pdf")) || raw.trim());
@@ -153,28 +216,9 @@ export async function fetchArticle(raw: string, opts: { pdf?: boolean } = {}): P
   if (kind === "social") return { ok: false, error: "That's a post, not an article. Open the link it shares, or copy the post and use Paste text.", status: 422 };
   if (kind === "video") return { ok: false, error: "That's a video, and Gloss reads text. Copy its transcript and use Paste text.", status: 422 };
 
-  // Follow redirects by hand so every hop gets the same private-address check.
-  let res: Response | null = null;
-  let target: URL = checked;
-  try {
-    for (let hop = 0; hop < 5; hop++) {
-      res = await fetch(target, {
-        redirect: "manual",
-        signal: AbortSignal.timeout(15_000),
-        headers: {
-          "User-Agent": `Mozilla/5.0 (compatible; ${APP_UA}; +reader)`,
-          Accept: opts.pdf ? "text/html,application/xhtml+xml,application/pdf" : "text/html,application/xhtml+xml",
-        },
-      });
-      const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
-      if (!location) break;
-      const next = await safeUrl(new URL(location, target).toString());
-      if (typeof next === "string") return { ok: false, error: next, status: 400 };
-      target = next;
-    }
-  } catch {
-    return { ok: false, error: "The site did not answer in time.", status: 502 };
-  }
+  const got = await fetchPublic(checked, opts.pdf ? "text/html,application/xhtml+xml,application/pdf" : "text/html,application/xhtml+xml");
+  if ("error" in got) return { ok: false, ...got };
+  const { res, target } = got;
   if (!res || !res.ok) {
     const status = res?.status ?? 0;
     const msg =

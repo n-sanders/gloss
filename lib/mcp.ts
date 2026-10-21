@@ -1,23 +1,25 @@
 /**
- * The Gloss MCP server: a reader's agent saves articles (by link, or as text it
- * has read itself) to their library and looks through it. Streamable HTTP, stateless: every request is one JSON-RPC
+ * The Gloss MCP server: an agent saves articles (by link, or as text it has
+ * read itself) to the family library and looks through it. Streamable HTTP, stateless: every request is one JSON-RPC
  * message answered with JSON, no session and no event stream.
  *
- * Auth is a personal token from the library ("Connect an agent"), sent as
+ * Auth is a token made in Settings ("Connect an agent"), sent as
  * `Authorization: Bearer gls_...`, or as the last part of the URL
- * (usegloss.io/mcp/gls_...) for clients that only take a URL.
+ * (/mcp/gls_...) for clients that only take a URL. The passphrase gate does
+ * not cover /mcp: the token is the lock here.
  */
 
 import { hashToken, looksLikeToken } from "./agent";
 import { normalizeUrl } from "./links";
 import { blockText, textToArticle, wordCount, type Article } from "./article";
-import { shelfOf, shelveForUser, tokenUser, type ShelfRow } from "./db";
+import { shelf as shelfRows, shelve, tokenLabel, type ShelfRow } from "./db";
 import { arxivFullText, fetchArticle, notAnArticle } from "./fetch-article";
 import { TOPIC, TOPICS, isTopic, yearOf, type TopicKey } from "./library";
-import { chargeFree, checkFreeUser } from "./quota";
+import { loadTopics } from "./topics-server";
 import { allow } from "./ratelimit";
 import { classify } from "./shelve";
 import { excerptOf } from "./excerpt";
+import { SITE_URL } from "./brand";
 import type { LibraryItem } from "./store";
 
 const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -25,10 +27,10 @@ const PER_CALL = 25;
 /** About 60,000 words: a long essay or a two-hour transcript, well short of a book. */
 const MAX_TEXT = 400_000;
 const PER_DAY = 1000;
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://usegloss.io";
+const SITE = SITE_URL;
 
-const INSTRUCTIONS = `Gloss is a reader. This server is the reader's own library in Gloss: save articles to it, and look through what is there.
-When saving from social posts or bookmarks, send the URL of the article, essay or paper itself (the link inside the post), not the post. Gloss reads each page in, sorts it onto a topic, and it appears on the reader's shelves the next time they open Gloss.
+const INSTRUCTIONS = `Gloss is a family's shared homeschool library of readings and activities. This server is that library: save activities (links to practice sites, games and quizzes) and articles to it, and look through what is there.
+When saving from social posts or bookmarks, send the URL of the article, essay or paper itself (the link inside the post), not the post. Gloss reads each page in, sorts it onto a topic, and it appears on the shelves the next time someone opens Gloss.
 Gloss can't fetch posts on X and other social sites, videos, or pages behind a login. When the post itself is the piece (an X Article, a long post, a thread) or the reader wants a video's transcript, read it yourself and send the full text with save_text.`;
 
 const TOOLS = [
@@ -64,15 +66,33 @@ const TOOLS = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
+    name: "save_activity",
+    title: "Save an activity to the library",
+    description: "Put an activity on the family's shelf: a link to a site the kids use (a game, a quiz, a practice site). It opens in a new tab from the shelf; Gloss does not read its text. Give a title, and optionally a description, who made it, a topic key from list_topics, and a picture URL for its cover. Links already on the shelf are skipped.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The activity's address, starting with https://." },
+        title: { type: "string", description: "Its name on the shelf." },
+        description: { type: "string", description: "A sentence on what it is for." },
+        author: { type: "string", description: "Who made it." },
+        topic: { type: "string", description: "A topic key, from list_topics. Sorted automatically when left out." },
+        image: { type: "string", description: "A picture URL for its cover." },
+      },
+      required: ["url", "title"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
     name: "search_library",
     title: "Search the library",
-    description: "Find texts in the reader's Gloss library by words in the title, author, source or tags, by topic, or by reading status. With no arguments, lists the most recently added.",
+    description: "Find books in the family's Gloss library by words in the title, author, source or tags, or by topic. With no arguments, lists the most recently added.",
     inputSchema: {
       type: "object",
       properties: {
         query: { type: "string", description: "Words to look for." },
-        topic: { type: "string", enum: TOPICS.map((t) => t.key), description: "A topic key, from list_topics." },
-        status: { type: "string", enum: ["unread", "reading", "finished"] },
+        topic: { type: "string", description: "A topic key, from list_topics." },
         limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
       },
       additionalProperties: false,
@@ -82,7 +102,7 @@ const TOOLS = [
   {
     name: "list_topics",
     title: "List topics",
-    description: "The library's topics, with how many texts are on each.",
+    description: "The library's topics, with how many books (activities and readings) are on each.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
@@ -123,24 +143,25 @@ export async function handle(req: Request, pathToken?: string): Promise<Response
 
   const header = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
   const token = looksLikeToken(header) ? header : looksLikeToken(pathToken) ? pathToken : null;
-  if (!process.env.DATABASE_URL) return fail(first.id, -32000, "The Gloss library is not available on this server.", 503);
-  let who: { userId: string; label: string } | null = null;
+  let who: { label: string } | null = null;
   try {
-    who = token ? await tokenUser(hashToken(token)) : null;
+    who = token ? await tokenLabel(hashToken(token)) : null;
   } catch {
     return fail(first.id, -32000, "The Gloss library is not reachable right now. Try again in a minute.", 503);
   }
-  if (!who) return fail(first.id, -32001, `Missing or revoked Gloss token. Make one in your library at ${SITE}/library, under Connect an agent.`, 401);
-  const { userId, label } = who;
-  if (!allow(`mcp:${userId}`, 60, 60_000)) return fail(first.id, -32002, "Too many requests. Wait a minute, then try again.", 429);
+  if (!who) return fail(first.id, -32001, `Missing or revoked Gloss token. Make one at ${SITE}/settings, under Connect an agent.`, 401);
+  const { label } = who;
+  if (!allow(`mcp:${token}`, 60, 60_000)) return fail(first.id, -32002, "Too many requests. Wait a minute, then try again.", 429);
 
+  // The family's topics, as they are now: every tool names or checks them.
+  await loadTopics();
   // Notifications get no answer; with nothing to answer, the reply is an empty 202.
-  const answers = (await Promise.all(msgs.map((m) => answer(m, userId, label)))).filter((a) => a !== null);
+  const answers = (await Promise.all(msgs.map((m) => answer(m, label)))).filter((a) => a !== null);
   if (!answers.length) return new Response(null, { status: 202, headers: CORS });
   return json(batch ? answers : answers[0]);
 }
 
-async function answer(msg: Rpc, userId: string, label: string): Promise<object | null> {
+async function answer(msg: Rpc, label: string): Promise<object | null> {
   if (msg.id === undefined || msg.method?.startsWith("notifications/")) return null;
   const ok = (result: unknown) => ({ jsonrpc: "2.0", id: msg.id, result });
   const err = (code: number, message: string) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
@@ -162,10 +183,11 @@ async function answer(msg: Rpc, userId: string, label: string): Promise<object |
       const name = String(msg.params?.name ?? "");
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
       try {
-        if (name === "save_articles") return ok(await saveArticles(userId, args, label));
-        if (name === "save_text") return ok(await saveText(userId, args, label));
-        if (name === "search_library") return ok(await searchLibrary(userId, args));
-        if (name === "list_topics") return ok(await listTopics(userId));
+        if (name === "save_articles") return ok(await saveArticles(args, label));
+        if (name === "save_text") return ok(await saveText(args, label));
+        if (name === "save_activity") return ok(await saveActivity(args, label));
+        if (name === "search_library") return ok(await searchLibrary(args));
+        if (name === "list_topics") return ok(await listTopics());
         return err(-32602, `Unknown tool: ${name}`);
       } catch (e) {
         return ok(toolError(`Something went wrong: ${e instanceof Error ? e.message : String(e)}`));
@@ -184,12 +206,12 @@ const toolResult = (text: string, structured: Record<string, unknown>) => ({ con
 type Saved = { url: string; status: "saved" | "already_saved" | "failed"; title?: string; topic?: string; reason?: string };
 
 
-async function saveArticles(userId: string, args: Record<string, unknown>, via: string) {
+async function saveArticles(args: Record<string, unknown>, via: string) {
   const raw = Array.isArray(args.urls) ? args.urls.filter((u): u is string => typeof u === "string" && u.trim().length > 0) : [];
   if (!raw.length) return toolError("Send at least one URL in `urls`.");
   if (raw.length > PER_CALL) return toolError(`At most ${PER_CALL} URLs per call. Send the rest in another call.`);
 
-  const shelf = await shelfOf(userId);
+  const shelf = await shelfRows();
   const have = new Map<string, ShelfRow>();
   for (const r of shelf) if (typeof r.data.sourceUrl === "string") have.set(normalizeUrl(r.data.sourceUrl), r);
   let budget = savesLeft(shelf);
@@ -219,10 +241,10 @@ async function saveArticles(userId: string, args: Record<string, unknown>, via: 
       return { url, status: "already_saved", title: String(k.data.title ?? "") };
     }
 
-    const { topic, tags, scene } = await sortOf(userId, a);
+    const { topic, tags, scene } = await sortOf(a);
     const item = shelfItem(a, { topic, tags, scene, via });
-    await shelveForUser(userId, item, a);
-    have.set(key, { id: a.id, data: item as unknown as Record<string, unknown>, pct: 0 });
+    await shelve(item, a);
+    have.set(key, { id: a.id, data: item as unknown as Record<string, unknown> });
     return { url, status: "saved", title: a.title, topic: TOPIC[topic ?? "unsorted"].name };
   };
 
@@ -239,7 +261,7 @@ async function saveArticles(userId: string, args: Record<string, unknown>, via: 
     r.status === "saved" ? `Saved: ${r.title} (${r.topic})` : r.status === "already_saved" ? `Already in the library: ${r.title || r.url}` : `Not saved: ${r.url}. ${r.reason}`
   );
   const head = `${count("saved")} saved, ${count("already_saved")} already in the library, ${count("failed")} not saved.`;
-  return toolResult(`${head}\n${lines.join("\n")}\n\nThey'll be on the shelves at ${SITE}/library.`, { saved: count("saved"), alreadySaved: count("already_saved"), failed: count("failed"), results });
+  return toolResult(`${head}\n${lines.join("\n")}\n\nThey'll be on the shelves at ${SITE}.`, { saved: count("saved"), alreadySaved: count("already_saved"), failed: count("failed"), results });
 }
 
 /** Saves an agent may still make today: PER_DAY across both save tools. */
@@ -248,13 +270,10 @@ function savesLeft(shelf: ShelfRow[]) {
   return PER_DAY - shelf.filter((r) => r.data.addedBy === "agent" && Number(r.data.addedAt) > dayAgo).length;
 }
 
-/** Sort it now, on the reader's own allowance. Out of allowance, it waits in Unsorted and the browser sorts it later. */
-async function sortOf(userId: string, a: Article): Promise<{ topic?: TopicKey; tags?: string[]; scene?: string }> {
-  const free = await checkFreeUser(userId);
-  if (!free.ok) return {};
+/** Sort it now. Without AI, it waits in Unsorted and a browser sorts it later. */
+async function sortOf(a: Article): Promise<{ topic?: TopicKey; tags?: string[]; scene?: string }> {
   const c = await classify({ title: a.title, author: a.author, source: a.source, dek: a.dek, excerpt: excerptOf(a.blocks) });
   if (!c.ok) return {};
-  await chargeFree(free.subject, c.usd);
   return { topic: c.shelving.topic, scene: c.shelving.scene, tags: c.shelving.tags.length ? c.shelving.tags : undefined };
 }
 
@@ -262,7 +281,7 @@ async function sortOf(userId: string, a: Article): Promise<{ topic?: TopicKey; t
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 
-async function saveText(userId: string, args: Record<string, unknown>, via: string) {
+async function saveText(args: Record<string, unknown>, via: string) {
   const text = str(args.text);
   if (!text) return toolError("Send the text in `text`.");
   if (text.length > MAX_TEXT) return toolError(`That text is too long: at most ${MAX_TEXT.toLocaleString("en-US")} characters.`);
@@ -277,7 +296,7 @@ async function saveText(userId: string, args: Record<string, unknown>, via: stri
     }
   }
 
-  const shelf = await shelfOf(userId);
+  const shelf = await shelfRows();
   if (url) {
     const known = shelf.find((r) => typeof r.data.sourceUrl === "string" && normalizeUrl(r.data.sourceUrl) === normalizeUrl(url));
     if (known) return toolResult(`Already in the library: ${String(known.data.title ?? url)}`, { status: "already_saved", title: String(known.data.title ?? "") });
@@ -295,16 +314,71 @@ async function saveText(userId: string, args: Record<string, unknown>, via: stri
   a.published = str(args.published);
   for (const k of ["author", "source", "sourceUrl", "published"] as const) if (a[k] === undefined) delete a[k];
 
-  const item = shelfItem(a, { ...(await sortOf(userId, a)), via });
-  await shelveForUser(userId, item, a);
+  const item = shelfItem(a, { ...(await sortOf(a)), via });
+  await shelve(item, a);
   const topic = TOPIC[isTopic(item.topic) ? item.topic : "unsorted"].name;
-  return toolResult(`Saved: ${a.title} (${topic}, ${item.words.toLocaleString("en-US")} words)\n\nIt'll be on the shelves at ${SITE}/library.`, {
+  return toolResult(`Saved: ${a.title} (${topic}, ${item.words.toLocaleString("en-US")} words)\n\nIt'll be on the shelves at ${SITE}.`, {
     status: "saved",
     title: a.title,
     topic,
     words: item.words,
     readInGloss: `${SITE}/read/${a.id}`,
   });
+}
+
+/* ---------- save_activity ---------- */
+
+const webUrl = (v: unknown): string | null => {
+  try {
+    const u = new URL(String(v ?? "").trim());
+    return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+async function saveActivity(args: Record<string, unknown>, via: string) {
+  const url = webUrl(args.url);
+  if (!url) return toolError("`url` must be a web address, starting with https://.");
+  const title = str(args.title)?.slice(0, 300);
+  if (!title) return toolError("Send the activity's name in `title`.");
+
+  const shelf = await shelfRows();
+  const known = shelf.find((r) => typeof r.data.sourceUrl === "string" && normalizeUrl(r.data.sourceUrl) === normalizeUrl(url));
+  if (known) return toolResult(`Already on the shelf: ${String(known.data.title ?? url)}`, { status: "already_saved", title: String(known.data.title ?? "") });
+  if (savesLeft(shelf) <= 0) return toolError(`The daily limit of ${PER_DAY} saves is reached. Try again tomorrow.`);
+
+  const dek = str(args.description)?.slice(0, 400);
+  let topic: TopicKey | undefined = isTopic(args.topic) ? args.topic : undefined;
+  let tags: string[] | undefined;
+  if (!topic) {
+    const c = await classify({ title, author: str(args.author), source: new URL(url).hostname, dek });
+    if (c.ok) {
+      topic = c.shelving.topic;
+      tags = c.shelving.tags.length ? c.shelving.tags : undefined;
+    }
+  }
+  const item: LibraryItem = {
+    id: `act-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+    kind: "activity",
+    title,
+    author: str(args.author)?.slice(0, 120),
+    source: new URL(url).hostname.replace(/^www\./, ""),
+    words: 0,
+    origin: "activity",
+    addedAt: Date.now(),
+    dek,
+    sourceUrl: url,
+    cover: webUrl(args.image) ?? undefined,
+    topic,
+    tags,
+    addedBy: "agent",
+    addedVia: via || undefined,
+  };
+  for (const k of Object.keys(item) as (keyof LibraryItem)[]) if (item[k] === undefined) delete item[k];
+  await shelve(item, null);
+  const name = TOPIC[topic ?? "unsorted"].name;
+  return toolResult(`Saved: ${title} (${name})\n\nIt'll be on the shelf at ${SITE}.`, { status: "saved", title, topic: name });
 }
 
 function shelfItem(a: Article, s: { topic?: TopicKey; tags?: string[]; scene?: string; via?: string }): LibraryItem {
@@ -336,39 +410,39 @@ function shelfItem(a: Article, s: { topic?: TopicKey; tags?: string[]; scene?: s
 function describe(r: ShelfRow) {
   const d = r.data;
   const topic = isTopic(d.topic) ? d.topic : "unsorted";
+  const activity = d.kind === "activity";
   return {
+    kind: activity ? "activity" : "reading",
     title: String(d.title ?? ""),
     author: typeof d.author === "string" ? d.author : undefined,
     url: typeof d.sourceUrl === "string" ? d.sourceUrl : undefined,
     topic: TOPIC[topic].name,
     tags: Array.isArray(d.tags) ? d.tags : [],
-    minutes: Math.max(1, Math.round(Number(d.words ?? 0) / 230)),
-    status: r.pct >= 1 ? "finished" : r.pct > 0 ? "reading" : "unread",
+    minutes: activity ? undefined : Math.max(1, Math.round(Number(d.words ?? 0) / 230)),
     addedAt: new Date(Number(d.addedAt ?? 0)).toISOString().slice(0, 10),
-    readInGloss: `${SITE}/read/${r.id}`,
+    readInGloss: activity ? undefined : `${SITE}/read/${r.id}`,
   };
 }
 
-async function searchLibrary(userId: string, args: Record<string, unknown>) {
+async function searchLibrary(args: Record<string, unknown>) {
   const words = String(args.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const topic = isTopic(args.topic) ? args.topic : null;
-  const status = typeof args.status === "string" ? args.status : null;
   const limit = Math.min(50, Math.max(1, Number(args.limit) || 20));
-  const shelf = (await shelfOf(userId)).filter((r) => r.data.origin !== "sample");
+  const shelf = (await shelfRows()).filter((r) => r.data.origin !== "sample");
   const found = shelf
     .map(describe)
-    .filter((b) => (!topic || b.topic === TOPIC[topic].name) && (!status || b.status === status))
+    .filter((b) => !topic || b.topic === TOPIC[topic].name)
     .filter((b) => words.every((w) => `${b.title} ${b.author ?? ""} ${b.url ?? ""} ${b.topic} ${b.tags.join(" ")}`.toLowerCase().includes(w)))
     .sort((a, b) => b.addedAt.localeCompare(a.addedAt));
   const shown = found.slice(0, limit);
   const text = shown.length
-    ? `${found.length} found${found.length > shown.length ? `, showing ${shown.length}` : ""}:\n${shown.map((b) => `- ${b.title}${b.author ? `, ${b.author}` : ""} (${b.topic}, ${b.minutes} min, ${b.status})${b.url ? ` ${b.url}` : ""}`).join("\n")}`
+    ? `${found.length} found${found.length > shown.length ? `, showing ${shown.length}` : ""}:\n${shown.map((b) => `- ${b.title}${b.author ? `, ${b.author}` : ""} (${b.topic}, ${b.minutes ? `${b.minutes} min` : "activity"})${b.url ? ` ${b.url}` : ""}`).join("\n")}`
     : "Nothing in the library matches.";
   return toolResult(text, { total: found.length, results: shown });
 }
 
-async function listTopics(userId: string) {
-  const shelf = (await shelfOf(userId)).filter((r) => r.data.origin !== "sample");
+async function listTopics() {
+  const shelf = (await shelfRows()).filter((r) => r.data.origin !== "sample");
   const counts = new Map<string, number>();
   for (const r of shelf) {
     const k = isTopic(r.data.topic) ? r.data.topic : "unsorted";

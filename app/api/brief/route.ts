@@ -1,14 +1,14 @@
 import { BRIEF_TASK, systemFor, type DocPayload } from "@/lib/prompts";
-import { completeJSON, DEFAULT_MODEL, isModelKey } from "@/lib/together";
+import { completeJSON } from "@/lib/openrouter";
+import { modelFor } from "@/lib/model-config";
+import { modelLabel } from "@/lib/models";
 import { undash, type BriefData } from "@/lib/article";
-import { chargeFree, checkFree, estimateUsd, needKey } from "@/lib/quota";
-import { MODELS } from "@/lib/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: Request) {
-  let body: { apiKey?: string; model?: string; doc?: DocPayload };
+  let body: { doc?: DocPayload };
   try {
     body = await req.json();
   } catch {
@@ -19,23 +19,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "doc is required." }, { status: 400 });
   }
 
-  const apiKey = body.apiKey?.trim() || undefined;
-  // A gloss of the whole text spends from the same free allowance.
-  let free: Awaited<ReturnType<typeof checkFree>> | null = null;
-  if (!apiKey) {
-    if (!process.env.TOGETHER_API_KEY) return needKey(null);
-    free = await checkFree(req);
-    if (!free.ok) return needKey(free);
-  }
-
-  const model = isModelKey(body.model) ? body.model : DEFAULT_MODEL;
+  const model = modelFor("structured");
   const result = await completeJSON<BriefData>({
     model,
-    apiKey,
     signal: req.signal,
     // Thinking first: checking a text's headline figures against its own tables is arithmetic, and without it the
-    // model repeats the abstract. About 10 s instead of 3 on a 14k-token paper, and half a cent more. The thinking
-    // spends from max_tokens (up to 7k on that paper), so the budget is generous.
+    // model repeats the abstract. The thinking spends from max_tokens, so the budget is generous.
     thinking: true,
     maxTokens: 16000,
     messages: [
@@ -43,11 +32,7 @@ export async function POST(req: Request) {
       { role: "user", content: BRIEF_TASK },
     ],
   });
-  if (free) {
-    const chars = doc.paras.reduce((a, p) => a + (p.text?.length ?? 0), 0);
-    await chargeFree(free.subject, result.ok ? result.usage.costUsd : estimateUsd(chars, MODELS[model].inPerM));
-  }
-  if (!result.ok) return Response.json({ error: result.error }, { status: 502 });
+  if (!result.ok) return Response.json({ error: result.error, code: result.code }, { status: result.code === "not_configured" ? 503 : 502 });
 
   // Keep only well-formed, in-range items so the UI never links to nothing.
   const valid = new Set(doc.paras.map((p) => p.n));
@@ -69,5 +54,5 @@ export async function POST(req: Request) {
       .sort((a, b) => a.start - b.start)
       .slice(0, 10),
   };
-  return Response.json({ brief, usage: result.usage, model }, { headers: free ? { "X-Free-Left": free.left.toFixed(3) } : undefined });
+  return Response.json({ brief, usage: result.usage, model: modelLabel(model) });
 }

@@ -1,49 +1,51 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, ViewTransition } from "react";
 import { ChevronLeft, ChevronRight, LayoutGrid, Library as LibraryIcon, Search, X } from "lucide-react";
 import { TopBar } from "@/components/ui/TopBar";
-import { readingMinutes, tidyTitle, wordCount } from "@/lib/article";
-import { forgetCover, paintAll } from "@/lib/covers";
-import { SAMPLE_SHELF } from "@/lib/classics";
-import { SORTS, sortBooks, TAGS, TOPIC, TOPICS, topicOf, type Book, type Sort, type TagKey, type Topic, type TopicKey } from "@/lib/library";
-import { hideSample, useLibraryPrefs } from "@/lib/library-prefs";
-import { SAMPLES } from "@/lib/samples";
+import { readingMinutes, tidyTitle } from "@/lib/article";
+import { paintAll } from "@/lib/covers";
+import { hostOf, SORTS, sortBooks, TAGS, TOPIC, TOPICS, topicOf, type Book, type Sort, type TagKey, type Topic, type TopicKey } from "@/lib/library";
+import { useLibraryName } from "@/lib/library-name";
+import { useLibraryPrefs } from "@/lib/library-prefs";
 import { applySettings } from "@/lib/settings";
 import { backfill } from "@/lib/shelving";
-import { useStore } from "@/lib/store";
+import { useStore, type LibraryItem } from "@/lib/store";
 import { watchShelf } from "@/lib/sync";
-import { AddButton, AddPanel, type AddTab } from "./AddPanel";
+import { AddPanel, type AddTab } from "./AddPanel";
+import { BookEditor, newActivity } from "./BookEditor";
 import { Arrivals, type Wave } from "./Arrivals";
+import { DailyHighlight } from "./DailyHighlight";
+import { ShelfSheet, type ShelfItem } from "./ShelfSheet";
 import { Glyph } from "./Book";
 import { BookOpen, type Origin } from "./BookOpen";
 import { Shelf } from "./Shelf";
-import { Starter } from "./Starter";
 import { TopicGrid, TopicPage } from "./Topics";
 
 type View = "shelf" | "topics";
 
-const SEEN_KEY = "gloss:library-seen";
-/** Samples stay on the shelf until it has this many texts of your own, or for good once opened, unless taken off. */
-const SAMPLES_UNTIL = 6;
-
 /**
- * Your library: everything on your shelf, sorted onto topics. The bookcase
- * arranges by topic, recency, colour or length; the topics view opens each
- * subject into a display of covers. Any book comes off the shelf into your
- * hands, and from there into the reader. New texts, yours or your agent's,
- * drop onto the shelf as they arrive.
+ * The family library: every activity and reading, sorted onto topics. The
+ * bookcase arranges by topic, recency, colour or length; the topics view opens
+ * each subject into a display of covers. Any book comes off the shelf into
+ * your hands, and from there out to its activity or into the reader. New
+ * books, from anyone in the house or an agent, drop onto the shelf as they arrive.
  */
 export function Library() {
   const router = useRouter();
-  const { user, isSignedIn } = useUser();
   const hydrate = useStore((s) => s.hydrate);
   const hydrated = useStore((s) => s.hydrated);
   const library = useStore((s) => s.library);
+  // TOPICS and TOPIC follow the store's topics; this re-renders when they change.
+  const topicRows = useStore((s) => s.topics);
+  const name = useLibraryName();
   const progress = useStore((s) => s.progress);
   const highlights = useStore((s) => s.highlights);
+  const glosses = useStore((s) => s.glosses);
+  const finished = useStore((s) => s.finished);
+  const opened = useStore((s) => s.opened);
+  const markOpened = useStore((s) => s.markOpened);
   const shelveItem = useStore((s) => s.shelve);
   const removeFromLibrary = useStore((s) => s.removeFromLibrary);
   const prefs = useLibraryPrefs();
@@ -56,19 +58,15 @@ export function Library() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<{ id: string; origin: Origin } | null>(null);
   const [adding, setAdding] = useState<AddTab | null>(null);
+  const [editing, setEditing] = useState<{ item: LibraryItem; isNew: boolean } | null>(null);
   const [fresh, setFresh] = useState<Set<string>>(() => new Set());
   const [leaving, setLeaving] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const known = useRef<Set<string> | null>(null);
-  const [lastSeen, setLastSeen] = useState(0);
 
   useEffect(() => {
     hydrate();
     applySettings(useStore.getState().settings);
-    try {
-      setLastSeen(Number(localStorage.getItem(SEEN_KEY)) || 0);
-      localStorage.setItem(SEEN_KEY, String(Date.now()));
-    } catch {}
   }, [hydrate]);
 
   const [wave, setWave] = useState<Wave | null>(null);
@@ -80,7 +78,7 @@ export function Library() {
   }, []);
   useEffect(() => () => clearTimeout(waveTimer.current), []);
 
-  // Signed in, the shelf is checked every few seconds while it's open, so an agent's saves arrive as you look.
+  // The shelf is checked every few seconds while it's open, so others' saves arrive as you look.
   useEffect(() => watchShelf(), []);
 
   // The top bar frosts over once the page moves under it.
@@ -108,7 +106,7 @@ export function Library() {
     for (const id of added) setTimeout(() => setFresh((f) => (f.has(id) ? new Set([...f].filter((x) => x !== id)) : f)), 2600);
 
     // And they gather on the arrivals card: one card per run, kept open while more keep coming.
-    const items = library.filter((x) => added.includes(x.id) && x.origin !== "sample");
+    const items = library.filter((x) => added.includes(x.id));
     if (!items.length) return;
     const byAgent = items.find((x) => x.addedBy === "agent");
     setWave((w) => {
@@ -133,53 +131,56 @@ export function Library() {
     if (hydrated && prefs.paintedCovers) void paintAll(useStore.getState().library);
   }, [hydrated, prefs.paintedCovers, library]);
 
-  const own = library.filter((x) => x.origin !== "sample");
   const books = useMemo(() => {
     const read = (id: string) => (hydrated ? progress[id]?.pct ?? 0 : 0);
     const marks = (id: string) => (hydrated ? (highlights[id] ?? []).length : 0);
-    const mine: Book[] = library.map((x) => ({
+    return library.map<Book>((x) => ({
       id: x.id,
+      kind: x.kind ?? "reading",
       title: tidyTitle(x.title),
       author: bylineOf(x),
       year: x.year,
       url: x.sourceUrl,
       topic: topicOf(x.topic),
-      minutes: readingMinutes(x.words),
+      minutes: x.kind === "activity" ? 0 : readingMinutes(x.words),
       dek: x.dek,
       tags: x.tags ?? [],
       favorite: Boolean(x.favorite),
       pct: read(x.id),
       highlights: marks(x.id),
       added: x.addedAt,
-      finished: x.finishedAt,
+      finished: hydrated ? finished[x.id] : undefined,
+      opened: hydrated ? opened[x.id] : undefined,
       image: x.image,
       cover: x.cover,
+      coverRev: x.coverRev,
+      color: x.color,
       agent: x.addedBy === "agent",
-      sample: false,
     }));
-    const samples: Book[] = SAMPLES.filter((a) => !prefs.hiddenSamples.includes(a.id) && (own.length < SAMPLES_UNTIL || read(a.id) > 0)).map((a) => ({
-      id: a.id,
-      title: a.title,
-      author: a.author ?? "",
-      year: Number(a.published?.match(/\d{4}/)?.[0]) || undefined,
-      topic: SAMPLE_SHELF[a.id]?.topic ?? "unsorted",
-      minutes: readingMinutes(wordCount(a)),
-      dek: a.dek,
-      tags: [],
-      favorite: false,
-      pct: read(a.id),
-      highlights: marks(a.id),
-      added: 0,
-      cover: SAMPLE_SHELF[a.id]?.cover,
-      agent: false,
-      sample: true,
-    }));
-    return [...mine, ...samples];
-    // `own.length` is derived from `library`.
+    // A topic taken away moves its books to Unsorted, so the topics are read again when they change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [library, progress, highlights, hydrated, prefs.hiddenSamples]);
+  }, [library, progress, highlights, finished, opened, hydrated, topicRows]);
 
-  const sorted = useMemo(() => sortBooks(books, sort), [books, sort]);
+  // The same books as a list, for the sheet of every text and every highlight. Activities have no text to mark.
+  const sheetItems: ShelfItem[] = useMemo(
+    () =>
+      books
+        .filter((b) => b.kind !== "activity")
+        .map((b) => ({
+          id: b.id,
+          title: b.title,
+          byline: b.author,
+          dek: b.dek,
+          words: b.minutes * 230,
+          pct: b.pct,
+          glosses: hydrated ? (glosses[b.id] ?? []).length : 0,
+          touched: (hydrated ? progress[b.id]?.at : 0) || b.added,
+        })),
+    [books, glosses, progress, hydrated]
+  );
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sorted = useMemo(() => sortBooks(books, sort), [books, sort, topicRows]);
 
   const match = useCallback(
     (b: Book) => {
@@ -193,21 +194,9 @@ export function Library() {
 
   const topics = useMemo(
     () => TOPICS.map((t) => ({ topic: t, books: books.filter((b) => b.topic === t.key).sort((a, b) => b.added - a.added) })).filter((x) => x.books.length),
-    [books]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [books, topicRows]
   );
-
-  const stats = useMemo(() => {
-    const mins = books.reduce((n, b) => n + b.minutes, 0);
-    return {
-      count: books.length,
-      topics: topics.filter((t) => t.topic.key !== "unsorted").length,
-      hours: Math.max(1, Math.round(mins / 60)),
-      reading: books.filter((b) => b.pct > 0 && b.pct < 1).length,
-      read: books.filter((b) => b.pct >= 1).length,
-    };
-  }, [books, topics]);
-
-  const fromAgent = useMemo(() => (lastSeen ? books.filter((b) => b.agent && b.added > lastSeen) : []), [books, lastSeen]);
 
   const go = useCallback((to: { view: View; topic?: TopicKey | null }) => {
     startTransition(() => {
@@ -241,9 +230,7 @@ export function Library() {
   );
 
   const openBook = open ? books.find((b) => b.id === open.id) ?? null : null;
-  const first = user?.firstName;
-  const owner = user?.fullName || first || "A Gloss reader";
-  const T = topic ? TOPIC[topic] : null;
+  const T = topic ? TOPIC[topic] ?? null : null;
   const topicBooks = useMemo(() => (topic ? books.filter((b) => b.topic === topic).sort((a, b) => b.added - a.added).filter(match) : []), [topic, books, match]);
   const screen = topic ? `topic-${topic}` : view;
 
@@ -275,61 +262,17 @@ export function Library() {
   return (
     <div className={`library relative z-[1] min-h-dvh transition-[opacity,filter] duration-300 ${leaving ? "opacity-0 blur-[2px]" : ""}`}>
       <div className="lib-top" data-scrolled={scrolled || undefined}>
-        <TopBar here="library" onLibrary={() => go({ view: topic ? "topics" : view })} />
+        <TopBar here="library" onLibrary={() => go({ view: topic ? "topics" : view })} onAdd={() => setAdding("activity")} />
       </div>
 
-      <main className="mx-auto w-full max-w-[1180px] px-4 pb-32 sm:px-8">
-        {!T && (
-          <section className="lib-hero">
-            <div className="lib-hero-row">
-              <div className="min-w-0">
-                <h1 className="lib-title">{first ? `${first}'s library` : "Your library"}</h1>
-                {/* Its height is kept while the shelf is read, so the tools below never jump. */}
-                <p className="lib-stats">
-                  {hydrated && (
-                    <>
-                      <span>
-                        <b>{stats.count}</b> {stats.count === 1 ? "text" : "texts"}
-                      </span>
-                      {stats.topics > 0 && (
-                        <span>
-                          <b>{stats.topics}</b> {stats.topics === 1 ? "topic" : "topics"}
-                        </span>
-                      )}
-                      <span>
-                        <b>{stats.hours}</b> {stats.hours === 1 ? "hour" : "hours"} of reading
-                      </span>
-                      {stats.reading > 0 && (
-                        <span>
-                          <b>{stats.reading}</b> in progress
-                        </span>
-                      )}
-                      {stats.read > 0 && (
-                        <span>
-                          <b>{stats.read}</b> read
-                        </span>
-                      )}
-                    </>
-                  )}
-                </p>
-              </div>
-              <AddButton onClick={() => setAdding("agent")} />
-            </div>
-            {fromAgent.length > 0 && (
-              <button type="button" className="lib-news" onClick={() => (setTag("agent"), setOnly(null), go({ view: "shelf" }))}>
-                <Glyph k="agent" size={22} />
-                {fromAgent.length} new from your agent since you last looked
-              </button>
-            )}
-          </section>
-        )}
+      <main className="mx-auto w-full max-w-[1180px] px-4 pb-32 pt-6 sm:px-8 sm:pt-8">
+        <h1 className="sr-only">{name}</h1>
 
         {T ? (
           <div className="lib-tools is-topic">
             <button type="button" onClick={() => go({ view: "topics" })} className="lib-back">
               <ChevronLeft size={16} /> All topics
             </button>
-            <AddButton compact onClick={() => setAdding("agent")} />
           </div>
         ) : (
           <div className="lib-tools">
@@ -393,17 +336,19 @@ export function Library() {
                 {hydrated && shown.size === 0 && books.length > 0 && (
                   <p className="py-6 text-center text-[14px] text-ink-3">Nothing on the shelves matches{q ? <> &ldquo;{q}&rdquo;</> : ""}.</p>
                 )}
-                {hydrated && own.length < SAMPLES_UNTIL ? (
-                  <Starter count={own.length} signedIn={Boolean(isSignedIn)} onAdd={setAdding} />
-                ) : (
-                  hydrated && <p className="lib-hint">Click a spine to take it down. Arrow keys walk the shelf.</p>
-                )}
+                {hydrated && <p className="lib-hint">{books.length ? "Click a spine to take it down. Arrow keys walk the shelf." : "The shelf is empty. Add a book with the + at the top."}</p>}
               </>
             ) : (
               <TopicGrid topics={topics} onPick={(t: Topic) => go({ view: "topics", topic: t.key })} />
             )}
           </div>
         </ViewTransition>
+
+        {!T && hydrated && (
+          <div className="mt-14">
+            <DailyHighlight />
+          </div>
+        )}
       </main>
 
       {open && openBook && (
@@ -411,14 +356,19 @@ export function Library() {
           key={open.id}
           book={openBook}
           origin={open.origin}
-          owner={owner}
+          owner={name}
           onRead={read}
+          onLaunch={(b) => markOpened(b.id)}
+          onEdit={(b) => {
+            const item = library.find((x) => x.id === b.id);
+            if (!item) return;
+            setOpen(null);
+            setEditing({ item, isNew: false });
+          }}
           onShelve={(b, patch) => shelveItem(b.id, patch)}
           onRemove={(b) => {
             setOpen(null);
-            if (b.sample) return hideSample(b.id);
             removeFromLibrary(b.id);
-            void forgetCover(b.id);
           }}
           onClose={() => {
             const id = open.id;
@@ -444,22 +394,39 @@ export function Library() {
           onRemove={() => {
             closeWave();
             if (open && wave.ids.includes(open.id)) setOpen(null);
-            for (const id of wave.ids) {
-              removeFromLibrary(id);
-              void forgetCover(id);
-            }
+            for (const id of wave.ids) removeFromLibrary(id);
           }}
         />
       )}
-      {adding && <AddPanel tab={adding} onTab={setAdding} onClose={() => setAdding(null)} signedIn={Boolean(isSignedIn)} />}
+      {adding && (
+        <AddPanel
+          tab={adding}
+          onTab={setAdding}
+          onClose={() => setAdding(null)}
+          onActivity={(seed) => {
+            setAdding(null);
+            setEditing({ item: newActivity(seed), isNew: true });
+          }}
+        />
+      )}
+      {editing && <BookEditor key={editing.item.id} item={editing.item} isNew={editing.isNew} onClose={() => setEditing(null)} />}
+      <ShelfSheet
+        items={sheetItems}
+        onOpen={(id, hl) => {
+          setLeaving(true);
+          router.push(`/read/${id}${hl ? `?hl=${hl}` : ""}`);
+        }}
+        onRename={(id, title) => shelveItem(id, { title })}
+        onRemove={(it) => removeFromLibrary(it.id)}
+      />
     </div>
   );
 }
 
 /** Who wrote it, or failing that where it is from: a site's name without its domain ending, a file without its extension. */
-function bylineOf(x: { author?: string; source?: string; origin?: string }): string {
+function bylineOf(x: { author?: string; source?: string; origin?: string; sourceUrl?: string }): string {
   if (x.author) return x.author;
-  const src = x.source?.split(",")[0].trim();
+  const src = x.source?.split(",")[0].trim() || (x.origin === "activity" ? hostOf(x.sourceUrl) : undefined);
   if (src) return src.replace(/^www\./, "").replace(/\.(pdf|txt|md|markdown)$/i, "").replace(/\.(com|org|net|io|ai|dev|co|edu|blog|app)(\.[a-z]{2})?$/i, "");
   return x.origin === "paste" ? "Pasted text" : x.origin === "file" ? "A file" : "Saved";
 }

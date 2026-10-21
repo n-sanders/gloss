@@ -1,0 +1,14 @@
+services:
+  gloss:
+    build: .
+    image: gloss:latest
+    container_name: gloss
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3100:3100"
+    volumes:
+      - gloss-data:/data
+
+volumes:
+  gloss-data:

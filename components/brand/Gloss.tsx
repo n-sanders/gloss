@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { TogetherLink } from "./Together";
+import { useLibraryName } from "@/lib/library-name";
 
 /** Lines of text with a note in the margin: the whole idea in 24px. */
 export function GlossMark({ className = "size-6" }: { className?: string }) {
@@ -13,29 +15,28 @@ export function GlossMark({ className = "size-6" }: { className?: string }) {
 }
 
 /**
- * The wordmark. The serif's line box is set to its own size and nudged so
- * the word's cap height is centered on the mark and the Together logo.
+ * The wordmark: the mark and the library's name. The serif's line box is set
+ * to its own size and nudged so the word's cap height is centered on the mark.
  */
 export function GlossWordmark() {
+  const name = useLibraryName();
   return (
     <span className="flex h-9 items-center gap-[7px] text-ink">
       <GlossMark className="size-[21px] shrink-0" />
-      <span className="block translate-y-[2px] font-serif text-[21px] font-[440] leading-[21px] tracking-[-0.018em] [font-variation-settings:'opsz'_36]">
-        Gloss
+      <span className="block translate-y-[2px] truncate font-serif text-[21px] font-[440] leading-[21px] tracking-[-0.018em] [font-variation-settings:'opsz'_36]">
+        {name}
       </span>
     </span>
   );
 }
 
-/** The app's mark, a hairline, then Together as the maker. */
+/** The app's mark, linking home. */
 export function Lockup({ href = "/" }: { href?: string }) {
   return (
-    <div className="flex h-9 items-center gap-3.5 max-[380px]:gap-2.5">
-      <Link href={href} aria-label="Gloss, back to your library" className="rounded-md">
+    <div className="flex h-9 min-w-0 items-center">
+      <Link href={href} aria-label="Back to the library" className="min-w-0 rounded-md">
         <GlossWordmark />
       </Link>
-      <span aria-hidden className="h-[18px] w-px bg-rule-strong" />
-      <TogetherLink />
     </div>
   );
 }

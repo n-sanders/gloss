@@ -2,9 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Keyboard, NotebookPen } from "lucide-react";
-import { Account } from "@/components/account/Account";
 import { Lockup } from "@/components/brand/Gloss";
-import { KeyMenu } from "@/components/ui/KeyMenu";
 import { ListenButton } from "./Listen";
 import { SettingsMenu } from "@/components/ui/SettingsMenu";
 import { barBtn } from "@/components/ui/Popover";
@@ -60,16 +58,6 @@ export function TopBar({ currentN, pastTitle, listenFrom }: { currentN: number |
     return () => window.removeEventListener("pointermove", move);
   }, [focusMode]);
 
-  // The key menu lives in this bar: when an answer asks for a key, come back into view.
-  useEffect(() => {
-    const show = () => {
-      setHidden(false);
-      setPeek(true);
-    };
-    window.addEventListener("gloss:key", show);
-    return () => window.removeEventListener("gloss:key", show);
-  }, []);
-
   const tucked = focusMode ? !peek && !scrolledUp && !notebookOpen : hidden && !notebookOpen;
 
   const section = (() => {
@@ -123,7 +111,6 @@ export function TopBar({ currentN, pastTitle, listenFrom }: { currentN: number |
           </span>
           <ListenButton from={listenFrom} />
           <SettingsMenu />
-          <KeyMenu />
           <button
             type="button"
             className={`${barBtn} !px-3 ${notebookOpen ? "bg-sunk text-ink" : ""}`}
@@ -139,7 +126,6 @@ export function TopBar({ currentN, pastTitle, listenFrom }: { currentN: number |
               <span className="min-w-[18px] rounded-full bg-[var(--rubric)] px-1.5 text-center text-[11px] font-semibold leading-[18px] tabular-nums text-white">{count}</span>
             )}
           </button>
-          <Account />
         </nav>
       </div>
       <span ref={barRef} aria-hidden className="absolute inset-x-0 -bottom-px h-[2px] origin-left bg-[var(--rubric)] opacity-80" style={{ transform: "scaleX(0)" }} />

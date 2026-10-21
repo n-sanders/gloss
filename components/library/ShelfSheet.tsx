@@ -7,7 +7,7 @@ import { Check, Download, PencilLine, Search, X } from "lucide-react";
 import { readingMinutes, tidyTitle } from "@/lib/article";
 import { exportAll } from "@/lib/export";
 import { useStore, type Highlight } from "@/lib/store";
-/** One text in the sheet: a shelf entry or a sample, with how far it has been read. */
+/** One text in the sheet: a shelf entry, with how far it has been read. */
 export type ShelfItem = {
   id: string;
   title: string;
@@ -16,7 +16,6 @@ export type ShelfItem = {
   words: number;
   pct: number;
   glosses: number;
-  sample: boolean;
   /** When it was last read, or added. */
   touched: number;
 };
@@ -162,16 +161,11 @@ export function ShelfSheet({
         <div className="mx-auto flex h-full w-full max-w-[1040px] flex-col px-5 sm:px-10">
           <header className="flex flex-wrap items-center gap-x-6 gap-y-4 pb-5 pt-7">
             <div className="min-w-0 flex-1">
-              <h2 className="flex items-baseline gap-3 font-serif text-[30px] leading-none tracking-[-0.015em] text-ink">
-                Your shelf
-                <Link href="/library" className="font-sans text-[13px] tracking-normal text-ink-3 underline decoration-rule-strong underline-offset-4 transition-colors hover:text-ink">
-                  Open the library
-                </Link>
-              </h2>
+              <h2 className="flex items-baseline gap-3 font-serif text-[30px] leading-none tracking-[-0.015em] text-ink">Our shelf</h2>
               <p className="mt-2 text-[13px] text-ink-3">
                 {view === "highlights"
-                  ? `${allHighlights.length} highlight${allHighlights.length === 1 ? "" : "s"} across your texts`
-                  : `${items.length} texts${counts.reading ? ` · ${counts.reading} in progress` : ""}`}
+                  ? `${allHighlights.length} highlight${allHighlights.length === 1 ? "" : "s"} across your readings`
+                  : `${items.length} ${items.length === 1 ? "reading" : "readings"}${counts.reading ? ` · ${counts.reading} in progress` : ""}`}
               </p>
             </div>
             <label className="flex h-10 w-full items-center gap-2 rounded-full border border-rule bg-bg px-3.5 transition-colors focus-within:border-rule-strong sm:w-[300px]">
@@ -302,7 +296,6 @@ export function ShelfSheet({
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 font-serif text-[18px] leading-[1.2] tracking-[-0.01em] text-ink">{tidyTitle(it.title)}</span>
                     <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-ink-3">
-                      {it.sample && <span className="rounded-full border border-dashed border-rule-strong px-1.5 text-[11.5px] leading-[17px] text-ink-3">Sample</span>}
                       <span className="max-w-[60%] truncate">{it.byline}</span>
                       <span aria-hidden className="text-ink-4">{"·"}</span>
                       <span className="tabular-nums">{it.pct > 0 && it.pct < 1 ? `${Math.round(it.pct * 100)}% read` : `${readingMinutes(it.words)} min`}</span>
@@ -317,21 +310,19 @@ export function ShelfSheet({
                     </span>
                   </span>
                 </Link>
-                {!it.sample && (
-                  <button
-                    type="button"
-                    aria-label={`Rename ${it.title}`}
-                    data-tip="Rename"
-                    onClick={() => setRenaming(it.id)}
-                    className="absolute right-10 top-3 grid size-7 place-items-center rounded-full text-ink-4 opacity-0 transition-[opacity,background-color] hover:bg-bg hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                  >
-                    <PencilLine size={14} />
-                  </button>
-                )}
                 <button
                   type="button"
-                  aria-label={it.sample ? `Remove the sample ${it.title}` : `Remove ${it.title} from your shelf`}
-                  data-tip={it.sample ? "Remove this sample" : "Remove from shelf"}
+                  aria-label={`Rename ${it.title}`}
+                  data-tip="Rename"
+                  onClick={() => setRenaming(it.id)}
+                  className="absolute right-10 top-3 grid size-7 place-items-center rounded-full text-ink-4 opacity-0 transition-[opacity,background-color] hover:bg-bg hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                >
+                  <PencilLine size={14} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Remove ${it.title} from the shelf`}
+                  data-tip="Remove from shelf"
                   onClick={() => onRemove(it)}
                   className="absolute right-2 top-3 grid size-7 place-items-center rounded-full text-ink-4 opacity-0 transition-[opacity,background-color] hover:bg-bg hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >

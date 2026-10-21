@@ -267,7 +267,7 @@ export function Shelf({
                   aria-hidden={out || undefined}
                   aria-label={`${b.title}, ${b.author}`}
                   data-tip={b.title}
-                  data-tip-hint={`${b.author} · ${fmtMinutes(b.minutes)}${b.pct > 0 && b.pct < 1 ? ` · ${Math.round(b.pct * 100)}% read` : b.pct >= 1 ? " · read" : ""}`}
+                  data-tip-hint={b.kind === "activity" ? `${b.author ? `${b.author} · ` : ""}Activity` : `${b.author} · ${fmtMinutes(b.minutes)}${b.pct > 0 && b.pct < 1 ? ` · ${Math.round(b.pct * 100)}% read` : b.pct >= 1 ? " · read" : ""}`}
                   onClick={(e) => onOpen(b, e.currentTarget.querySelector(".spine") as HTMLElement)}
                   onPointerEnter={() => warm(b)}
                   onFocus={() => warm(b)}

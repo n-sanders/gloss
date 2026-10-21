@@ -1,8 +1,10 @@
 "use client";
 
 /**
- * Account sync for signed-in readers. The browser stays the source of truth
- * while you read; this mirrors it to the account and back.
+ * The family shelf, kept the same on every computer. Only the shelf (books and topics) syncs:
+ * reading progress, highlights, glosses and briefs stay on the computer they
+ * were made on. The browser stays the source of truth while you read; this
+ * mirrors the shelf to the server and back.
  *
  * - Push: what changed since the last push, found by comparing each entity's
  *   stable JSON with a baseline of what the server already has. Deletions are
@@ -12,8 +14,7 @@
  * - Texts travel separately: pushed once with the shelf entry, fetched on
  *   another device only when it is opened there.
  *
- * The baseline lives in localStorage per user, so a second account on the
- * same browser starts fresh and receives what is on this device.
+ * The baseline lives in localStorage.
  *
  * While a page watches the shelf (the library), it also pulls every few
  * seconds, so what an agent saves arrives while you look.
@@ -21,9 +22,7 @@
 
 import { forgetDoc, loadDoc, saveDoc, useStore, type RemoteChanges } from "./store";
 import type { Article } from "./article";
-import { forgetCover } from "./covers";
-
-const COLLECTIONS = ["articles", "highlights", "glosses", "briefs", "progress"] as const;
+const COLLECTIONS = ["articles", "topics"] as const;
 type Collection = (typeof COLLECTIONS)[number];
 
 type Entity = { articleId: string; data: unknown; key: string };
@@ -55,19 +54,9 @@ function snapshot(): Snapshot {
   const busy = new Set<string>();
   const put = (c: Collection, id: string, articleId: string, data: unknown) => entities[c].set(id, { articleId, data, key: stable(data) });
 
-  for (const item of st.library) put("articles", item.id, item.id, item);
-  for (const [aid, list] of Object.entries(st.highlights)) for (const h of list) put("highlights", h.id, aid, h);
-  for (const [aid, list] of Object.entries(st.glosses))
-    for (const g of list) {
-      // An answer still being written is left alone until it settles.
-      if (g.turns.some((t) => t.streaming)) busy.add(`glosses:${g.id}`);
-      else put("glosses", g.id, aid, g);
-    }
-  for (const [aid, b] of Object.entries(st.briefs)) {
-    if (b.status === "ready") put("briefs", aid, aid, b);
-    else busy.add(`briefs:${aid}`);
-  }
-  for (const [aid, p] of Object.entries(st.progress)) put("progress", aid, aid, p);
+  // Samples ship with the app on every computer, so they never go to the server.
+  for (const item of st.library) if (item.origin !== "sample") put("articles", item.id, item.id, item);
+  for (const t of st.topics) put("topics", t.key, t.key, t);
   return { entities, busy };
 }
 
@@ -87,12 +76,16 @@ export function watchShelf(): () => void {
 
 const emptyBaseline = (): Baseline => ({ since: null, seen: Object.fromEntries(COLLECTIONS.map((c) => [c, {}])) as Baseline["seen"] });
 
-export function startSync(userId: string) {
-  const storeKey = `gloss:sync:${userId}`;
+export function startSync() {
+  const storeKey = "gloss:sync:family";
   let base: Baseline = emptyBaseline();
   try {
     const raw = localStorage.getItem(storeKey);
-    if (raw) base = { ...emptyBaseline(), ...JSON.parse(raw) };
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Baseline>;
+      // A baseline from before a collection existed has no record of it yet.
+      base = { since: saved.since ?? null, seen: { ...emptyBaseline().seen, ...saved.seen } };
+    }
   } catch {}
   const save = () => {
     try {
@@ -114,8 +107,7 @@ export function startSync(userId: string) {
         if (seen[id]?.[0] === e.key) continue;
         const row: OutRow = { id, articleId: e.articleId, data: e.data };
         // A text goes up with its first shelf entry, and again when it is replaced (its rev changes).
-        // Samples ship with the app.
-        if (c === "articles" && (e.data as { origin?: string }).origin !== "sample") {
+        if (c === "articles") {
           const doc = await loadDoc(id);
           if (doc) row.doc = doc;
         }
@@ -163,6 +155,8 @@ export function startSync(userId: string) {
   async function pull() {
     const q = base.since ? `?since=${encodeURIComponent(new Date(Date.parse(base.since) - OVERLAP_MS).toISOString())}` : "";
     const res = await fetch(`/api/sync${q}`);
+    // The passphrase changed since this computer unlocked: ask for the new one.
+    if (res.status === 401) window.location.assign(`/unlock?next=${encodeURIComponent(location.pathname)}`);
     if (!res.ok) throw new Error(`pull ${res.status}`);
     const { now, changes } = (await res.json()) as { now: string; changes: RemoteChanges };
 
@@ -170,8 +164,6 @@ export function startSync(userId: string) {
     for (const r of changes.articles ?? []) {
       const before = base.seen.articles[r.id];
       if (!r.deleted && r.data && before && (r.data as { rev?: number }).rev !== undefined && stable(r.data) !== before[0]) void forgetDoc(r.id);
-      // Removed on another device: its painted cover goes from this one too.
-      if (r.deleted) void forgetCover(r.id);
     }
     useStore.getState().applyRemote(changes);
 
@@ -196,7 +188,7 @@ export function startSync(userId: string) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const unsubscribe = useStore.subscribe((st, prev) => {
     if (!st.hydrated) return;
-    if (st.library === prev.library && st.highlights === prev.highlights && st.glosses === prev.glosses && st.briefs === prev.briefs && st.progress === prev.progress) return;
+    if (st.library === prev.library && st.topics === prev.topics) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => serial(push), 2000);
   });
@@ -230,7 +222,7 @@ export function startSync(userId: string) {
   };
 }
 
-/** Fetch one text from the account and keep it on this device. Null when signed out or not there. */
+/** Fetch one text from the server and keep it on this computer. Null when it is not there. */
 export async function fetchText(id: string): Promise<Article | null> {
   try {
     const res = await fetch(`/api/articles/${encodeURIComponent(id)}`);

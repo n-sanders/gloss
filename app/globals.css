@@ -1363,47 +1363,6 @@ mark.key .cite {
   background: color-mix(in oklab, var(--bg-sunk) 80%, var(--ink) 8%);
 }
 
-/* A bundled sample under the link bar: a small plate of its cover, and its author. */
-.lib-sample {
-  display: inline-flex;
-  height: 30px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 11px 0 4px;
-  border-radius: 999px;
-  border: 1px solid var(--rule);
-  background: var(--bg-raised);
-  color: var(--ink-2);
-  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s var(--ease-out);
-}
-.lib-sample img {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  object-fit: cover;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
-}
-.lib-sample:hover {
-  color: var(--ink);
-  border-color: var(--rule-strong);
-}
-.lib-sample:active {
-  transform: scale(0.97);
-}
-@media (max-width: 639px) {
-  /* On a phone the question sits on its own line, and the samples under it. */
-  .lib-line:has(.lib-sample) {
-    height: auto;
-    min-height: 34px;
-    flex-wrap: wrap;
-    gap: 8px 6px;
-  }
-  .lib-line:has(.lib-sample) > span:first-child {
-    flex-basis: 100%;
-    text-align: center;
-  }
-}
-
 /* ---------- the desk: what is yours, at the foot of the landing ---------- */
 
 /* One frame for every state (classics, how it works, latest highlights,

@@ -1,24 +1,27 @@
 /**
- * Sorting a text onto the library's shelves, on the server: one small call
- * to the fast model with the title and the opening, which picks a topic from
- * the fixed list, a few tags, and a scene for a painted cover. Never in the
- * way of an import: a failure leaves the text in Unsorted.
+ * Sorting a book onto the library's shelves, on the server: one small call
+ * to the fast model with the title and the opening, which picks one of the
+ * family's topics, a few tags, and a scene for a painted cover. Never in the
+ * way of an import: a failure leaves the book in Unsorted.
  */
 
-import { cleanTags, TOPICS, topicOf, type Shelving } from "./library";
+import { cleanTags, topicOf, UNSORTED, type Shelving, type Topic } from "./library";
 import { EXCERPT_CHARS } from "./excerpt";
-import { completeJSON, DEFAULT_MODEL } from "./together";
+import { completeJSON } from "./openrouter";
+import { modelFor } from "./model-config";
+import { loadTopics } from "./topics-server";
 
 export type ShelveInput = { title: string; author?: string; source?: string; dek?: string; excerpt?: string };
 
-const SYSTEM = `You shelve texts in a reader's personal library.
+const system = (topics: Topic[]) => `You shelve books in a family's homeschool library: readings, and activities (websites for practice, games and quizzes).
 
 Pick the one topic that fits best, by its key:
-${TOPICS.filter((t) => t.key !== "unsorted")
-  .map((t) => `- ${t.key}: ${t.hint}`)
+${topics
+  .filter((t) => t.key !== UNSORTED)
+  .map((t) => `- ${t.key}: ${t.name}${t.hint ? ` (${t.hint})` : ""}`)
   .join("\n")}
 
-Then up to 3 tags: short lowercase words or phrases that say what the text is about, more specific than the topic (e.g. "speculative decoding", "hiring", "stoicism").
+Then up to 3 tags: short lowercase words or phrases that say what it is about, more specific than the topic (e.g. "fractions", "dog breeds", "volcanoes").
 
 Then a scene for a wordless book-cover illustration of the text: one concrete visual metaphor with people, objects or a place, under 30 words. No text, letters, numbers, logos or screens with writing. No real people's likenesses.
 
@@ -26,8 +29,8 @@ Reply with JSON only: {"topic": "<key>", "tags": ["..."], "scene": "..."}`;
 
 export async function classify(
   input: ShelveInput,
-  opts: { apiKey?: string; signal?: AbortSignal } = {}
-): Promise<{ ok: true; shelving: Shelving; usd: number } | { ok: false; error: string }> {
+  opts: { signal?: AbortSignal } = {}
+): Promise<{ ok: true; shelving: Shelving; usd: number } | { ok: false; error: string; code?: "not_configured" }> {
   const lines = [
     `Title: ${input.title}`,
     input.author && `Author: ${input.author}`,
@@ -35,13 +38,13 @@ export async function classify(
     input.dek && `Summary: ${input.dek}`,
     input.excerpt && `Opening:\n${input.excerpt.slice(0, EXCERPT_CHARS)}`,
   ].filter(Boolean);
+  const topics = await loadTopics();
   const r = await completeJSON<{ topic?: unknown; tags?: unknown; scene?: unknown }>({
-    model: DEFAULT_MODEL,
-    apiKey: opts.apiKey,
+    model: modelFor("structured"),
     signal: opts.signal,
     maxTokens: 220,
     messages: [
-      { role: "system", content: SYSTEM },
+      { role: "system", content: system(topics) },
       { role: "user", content: lines.join("\n") },
     ],
   });

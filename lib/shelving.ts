@@ -8,13 +8,12 @@
  */
 
 import type { Article } from "./article";
-import { readApiKey } from "./ask";
 import type { Shelving } from "./library";
 import { excerptOf } from "./excerpt";
 import { loadDoc, useStore, type LibraryItem } from "./store";
 
 const inflight = new Set<string>();
-/** The free allowance ran out: stop sorting quietly until the next visit. */
+/** There is no AI on the server: stop sorting quietly until the next visit. */
 let resting = false;
 
 type Text = Pick<Article, "id" | "title" | "author" | "source" | "dek"> & { blocks?: Article["blocks"] };
@@ -26,13 +25,15 @@ export async function shelveText(a: Text): Promise<void> {
     const res = await fetch("/api/shelve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: a.title, author: a.author, source: a.source, dek: a.dek, excerpt: a.blocks ? excerptOf(a.blocks) : undefined, apiKey: readApiKey() || undefined }),
+      body: JSON.stringify({ title: a.title, author: a.author, source: a.source, dek: a.dek, excerpt: a.blocks ? excerptOf(a.blocks) : undefined }),
     });
-    if (res.status === 429 || res.status === 401) {
-      const j = (await res.json().catch(() => ({}))) as { code?: string };
-      // Spent for today, or no key at all: rest. A burst limit just means slow down.
-      if (j.code === "need_key") resting = true;
-      else await new Promise((r) => setTimeout(r, 15_000));
+    // No AI on the server: rest until the next visit. A rate limit just means slow down.
+    if (res.status === 503) {
+      resting = true;
+      return;
+    }
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 15_000));
       return;
     }
     if (!res.ok) return;

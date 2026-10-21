@@ -1,11 +1,9 @@
 "use client";
 
-import { Show, SignInButton } from "@clerk/nextjs";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, ChevronDown, RotateCcw } from "lucide-react";
-import { fetchBrief, openKeyMenu } from "@/lib/ask";
+import { fetchBrief } from "@/lib/ask";
 import type { DocIndex } from "@/lib/doc";
-import { MODELS, modelOf } from "@/lib/models";
 import { useStore } from "@/lib/store";
 import { Answer } from "./Answer";
 import { fmtCost, useReader } from "./context";
@@ -48,20 +46,6 @@ export function Brief() {
     return (
       <div className="mt-6 flex flex-wrap items-center gap-3 rounded-[16px] border border-rule px-4 py-3.5 text-[13.5px]">
         <p className="text-rubric-text">{brief.error}</p>
-        {brief.needKey && (
-          <>
-            <button type="button" onClick={openKeyMenu} className="font-medium text-ink underline decoration-rule-strong underline-offset-4">
-              Add your Together key
-            </button>
-            <Show when="signed-out">
-              <SignInButton mode="modal">
-                <button type="button" className="font-medium text-ink underline decoration-rule-strong underline-offset-4">
-                  Sign in
-                </button>
-              </SignInButton>
-            </Show>
-          </>
-        )}
         <button type="button" onClick={() => fetchBrief(ix)} className="font-medium text-ink underline decoration-rule-strong underline-offset-4">
           Try again
         </button>
@@ -69,7 +53,7 @@ export function Brief() {
     );
   }
 
-  const { data, usage, modelKey } = brief;
+  const { data, usage, model } = brief;
   const caveats = data.caveats ?? [];
   return (
     <section aria-label="Gloss" className="mt-6 rounded-[16px] border border-rule bg-raised/60 px-5">
@@ -154,8 +138,8 @@ export function Brief() {
 
           <div className="mt-5 flex items-center gap-3 text-[11.5px] tabular-nums text-ink-4">
             <span>
-              {modelKey ? MODELS[modelOf(modelKey)].label : ""}
-              {usage ? ` / ${usage.promptTokens.toLocaleString()} in, ${usage.completionTokens} out / ${fmtCost(usage.costUsd)}` : ""}
+              {model ?? ""}
+              {usage ? `${model ? " / " : ""}${usage.promptTokens.toLocaleString()} in, ${usage.completionTokens} out / ${fmtCost(usage.costUsd)}` : ""}
             </span>
             <button type="button" onClick={() => fetchBrief(ix)} className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-sunk hover:text-ink">
               <RotateCcw size={11} /> Redo

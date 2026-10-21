@@ -1,10 +1,15 @@
 "use client";
 
 import { ViewTransition } from "react";
-import { fmtMinutes, lookOf, topicArtSrc, type Book, type Topic } from "@/lib/library";
-import { Cover, Glyph } from "./Book";
+import { fmtMinutes, lookOf, type Book, type Topic } from "@/lib/library";
+import { Cover, Glyph, TopicArt } from "./Book";
 
-const hours = (books: Book[]) => fmtMinutes(books.reduce((n, b) => n + b.minutes, 0));
+/** "5 books · 2 activities · 1 h 20 min of reading", leaving out what there is none of. */
+function summary(books: Book[]) {
+  const acts = books.filter((b) => b.kind === "activity").length;
+  const mins = books.reduce((n, b) => n + b.minutes, 0);
+  return [`${books.length} ${books.length === 1 ? "book" : "books"}`, acts && `${acts} ${acts === 1 ? "activity" : "activities"}`, mins && `${fmtMinutes(mins)} of reading`].filter(Boolean).join(" · ");
+}
 
 /** Every topic as a card: its drawing, its name, and its books standing in a row. */
 export function TopicGrid({ topics, onPick }: { topics: { topic: Topic; books: Book[] }[]; onPick: (t: Topic) => void }) {
@@ -20,8 +25,7 @@ export function TopicGrid({ topics, onPick }: { topics: { topic: Topic; books: B
         >
           <ViewTransition name={`topic-art-${t.key}`} share="lib-morph" default="none">
             <div className="topic-card-art">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={topicArtSrc(t.key)} alt="" decoding="async" draggable={false} />
+              <TopicArt k={t.key} />
             </div>
           </ViewTransition>
           <div className="relative flex items-end justify-between gap-4 px-5 pb-1 pt-4">
@@ -33,7 +37,7 @@ export function TopicGrid({ topics, onPick }: { topics: { topic: Topic; books: B
                 </h3>
               </ViewTransition>
               <p className="mt-1.5 text-[13px] text-ink-3">
-                {books.length} {books.length === 1 ? "piece" : "pieces"} · {hours(books)}
+                {summary(books)}
               </p>
             </div>
           </div>
@@ -60,20 +64,19 @@ export function TopicPage({ topic: t, books, tools, onOpen }: { topic: Topic; bo
       <header className="topic-head">
         <ViewTransition name={`topic-art-${t.key}`} share="lib-morph" default="none">
           <div className="topic-head-art">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={topicArtSrc(t.key)} alt="" decoding="async" draggable={false} />
+            <TopicArt k={t.key} />
           </div>
         </ViewTransition>
         <div className="relative max-w-[640px]">
           <ViewTransition name={`topic-name-${t.key}`} share="lib-morph" default="none">
             <h2 className="w-fit font-serif text-[clamp(40px,6vw,64px)] leading-[0.98] tracking-[-0.025em] text-ink">
-              <Glyph k={t.key} size={64} className="mr-3 !align-[-0.12em] max-sm:!size-[44px]" />
+              <Glyph k={t.key} size={64} className="mr-3 !align-[-0.12em] max-sm:![--g:44px]" />
               {t.name}
             </h2>
           </ViewTransition>
           <p className="mt-4 text-pretty font-serif text-[18px] leading-[1.5] text-ink-2">{t.blurb}</p>
           <p className="mt-3 text-[13px] text-ink-3">
-            {books.length} {books.length === 1 ? "piece" : "pieces"} · {hours(books)} of reading
+            {summary(books)}
             {books.some((b) => b.pct > 0 && b.pct < 1) && ` · ${books.filter((b) => b.pct > 0 && b.pct < 1).length} in progress`}
           </p>
         </div>
@@ -93,7 +96,7 @@ export function TopicPage({ topic: t, books, tools, onOpen }: { topic: Topic; bo
               </ViewTransition>
             </button>
             <p className="mt-3 flex items-center gap-2 text-[12.5px] text-ink-3">
-              <span>{fmtMinutes(b.minutes)}</span>
+              <span>{b.kind === "activity" ? "Activity" : fmtMinutes(b.minutes)}</span>
               {b.pct > 0 && (
                 <>
                   <span aria-hidden>·</span>

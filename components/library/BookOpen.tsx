@@ -63,6 +63,8 @@ export function BookOpen({
   owner,
   onClose,
   onRead,
+  onLaunch,
+  onEdit,
   onShelve,
   onRemove,
 }: {
@@ -71,6 +73,9 @@ export function BookOpen({
   owner: string;
   onClose: () => void;
   onRead: (b: Book) => void;
+  /** An activity was opened in a new tab. */
+  onLaunch: (b: Book) => void;
+  onEdit: (b: Book) => void;
   onShelve: (b: Book, patch: { topic?: TopicKey; favorite?: boolean; title?: string }) => void;
   onRemove: (b: Book) => void;
 }) {
@@ -80,7 +85,7 @@ export function BookOpen({
   const bookRef = useRef<HTMLDivElement>(null);
   const shiftRef = useRef<HTMLDivElement>(null);
   const coverRef = useRef<HTMLDivElement>(null);
-  const readRef = useRef<HTMLButtonElement>(null);
+  const readRef = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
   const closing = useRef(false);
   const look = lookOf(book);
   const t = TOPIC[book.topic];
@@ -167,7 +172,9 @@ export function BookOpen({
   };
 
   const reading = book.pct > 0 && book.pct < 1;
+  const activity = book.kind === "activity";
   const host = hostOf(book.url);
+  const day = (t: number) => new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: new Date(t).getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
   const plateNo = String((hash(book.id) % 900) + 100);
   const shelved = new Date(book.added).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
@@ -222,18 +229,10 @@ export function BookOpen({
                     >
                       <Star size={15} fill={book.favorite ? "currentColor" : "none"} />
                     </button>
-                    {!book.sample && (
-                      <button type="button" className="ob-icon" aria-label="Rename" data-tip="Rename" onClick={() => setRenaming(true)}>
-                        <PencilLine size={14} />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="ob-icon"
-                      aria-label={book.sample ? "Remove this sample" : "Remove from the library"}
-                      data-tip={book.sample ? "Remove this sample" : "Remove from the library"}
-                      onClick={() => onRemove(book)}
-                    >
+                    <button type="button" className="ob-icon" aria-label="Edit" data-tip="Edit" onClick={() => onEdit(book)}>
+                      <PencilLine size={14} />
+                    </button>
+                    <button type="button" className="ob-icon" aria-label="Remove from the library" data-tip="Remove from the library" onClick={() => onRemove(book)}>
                       <Trash2 size={14} />
                     </button>
                   </span>
@@ -246,8 +245,6 @@ export function BookOpen({
                       if (title && title !== book.title) onShelve(book, { title });
                     }}
                   />
-                ) : book.sample ? (
-                  <h2 className="ob-title">{book.title}</h2>
                 ) : (
                   <h2 className="ob-title">
                     <button type="button" className="ob-title-btn" data-tip="Rename" onClick={() => setRenaming(true)}>
@@ -259,11 +256,11 @@ export function BookOpen({
                   {book.author}
                   <span className="ob-meta">
                     {book.year ? `${book.year} · ` : ""}
-                    {fmtMinutes(book.minutes)}
+                    {activity ? host ?? "Activity" : fmtMinutes(book.minutes)}
                   </span>
                 </p>
                 {book.dek && <p className="ob-dek">{book.dek}</p>}
-                {(tagsOf(book).length > 0 || book.tags.length > 0 || book.agent || book.sample) && (
+                {(tagsOf(book).length > 0 || book.tags.length > 0 || book.agent) && (
                   <p className="ob-tags">
                     {tagsOf(book).map((x) => (
                       <span key={x.key}>
@@ -272,10 +269,9 @@ export function BookOpen({
                     ))}
                     {book.agent && (
                       <span>
-                        <Glyph k="agent" size={15} /> Shelved by your agent
+                        <Glyph k="agent" size={15} /> Saved by an agent
                       </span>
                     )}
-                    {book.sample && <span className="is-word">a sample from Gloss</span>}
                     {book.tags.map((x) => (
                       <span key={x} className="is-word">
                         {x}
@@ -283,22 +279,42 @@ export function BookOpen({
                     ))}
                   </p>
                 )}
-                <div className="ob-progress">
-                  <span className="ob-bar" aria-hidden>
-                    <span style={{ width: `${Math.round(book.pct * 100)}%` }} />
-                  </span>
-                  <span>
-                    {book.pct >= 1 ? "Read" : reading ? `${Math.round(book.pct * 100)}% read` : "Not started"}
-                    {book.highlights > 0 && ` · ${book.highlights} highlight${book.highlights === 1 ? "" : "s"}`}
-                  </span>
-                </div>
+                {activity ? (
+                  <div className="ob-progress">
+                    <span>{book.opened ? `Last opened here ${day(book.opened)}` : "Not opened on this computer yet"}</span>
+                  </div>
+                ) : (
+                  <div className="ob-progress">
+                    <span className="ob-bar" aria-hidden>
+                      <span style={{ width: `${Math.round(book.pct * 100)}%` }} />
+                    </span>
+                    <span>
+                      {book.pct >= 1 ? "Read" : reading ? `${Math.round(book.pct * 100)}% read` : "Not started"}
+                      {book.highlights > 0 && ` · ${book.highlights} highlight${book.highlights === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
+                )}
                 <div className="ob-actions">
-                  <button ref={readRef} type="button" onClick={read} className="ob-read">
-                    {book.pct >= 1 ? "Read again" : reading ? "Continue reading" : "Start reading"}
-                    <ArrowRight size={16} />
-                  </button>
+                  {activity ? (
+                    book.url ? (
+                      <a ref={readRef} href={book.url} target="_blank" rel="noopener noreferrer" onClick={() => onLaunch(book)} className="ob-read">
+                        Open activity
+                        <ArrowUpRight size={16} />
+                      </a>
+                    ) : (
+                      <button ref={readRef} type="button" onClick={() => onEdit(book)} className="ob-read">
+                        Add its link
+                        <PencilLine size={15} />
+                      </button>
+                    )
+                  ) : (
+                    <button ref={readRef} type="button" onClick={read} className="ob-read">
+                      {book.pct >= 1 ? "Read again" : reading ? "Continue reading" : "Start reading"}
+                      <ArrowRight size={16} />
+                    </button>
+                  )}
                   <div className="ob-sub">
-                    {book.url ? (
+                    {book.url && !activity ? (
                       <a href={book.url} target="_blank" rel="noreferrer" className="ob-link">
                         {host} <ArrowUpRight size={13} />
                       </a>

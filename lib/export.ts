@@ -2,7 +2,6 @@
 
 import { ACTION_QUESTIONS, ACTIONS } from "./actions";
 import { numberBlocks, slugify, tidyTitle, undash } from "./article";
-import { SAMPLES } from "./samples";
 import { loadDoc, useStore, type Gloss, type Highlight, type Point, type Turn } from "./store";
 import { zip } from "./zip";
 
@@ -107,7 +106,7 @@ export async function exportAll(): Promise<number> {
 
   for (const id of ids) {
     const item = st.library.find((x) => x.id === id);
-    const doc = SAMPLES.find((a) => a.id === id) ?? (await loadDoc(id));
+    const doc = await loadDoc(id);
     const title = tidyTitle(item?.title ?? doc?.title ?? id);
     const meta: NotesMeta = {
       title,

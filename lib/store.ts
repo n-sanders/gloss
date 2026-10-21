@@ -5,6 +5,7 @@ import type { Action } from "./actions";
 import type { Article, BriefData } from "./article";
 import { modelOf, type ModelKey, type Source, type Usage } from "./models";
 import { DEFAULT_SETTINGS, SETTINGS_KEY, type Marker, type Settings } from "./settings";
+import { DEFAULT_TOPICS, setTopics, UNSORTED, type TopicRow } from "./library";
 
 /** A point in the text: block id and a character offset into its plain text. */
 export type Point = { b: string; o: number };
@@ -16,8 +17,6 @@ export type Turn = {
   usage?: Usage;
   model?: string;
   modelKey?: ModelKey;
-  /** The reader needs their own key to continue: free answers are spent, or there is no shared key. */
-  needKey?: boolean;
   /** Looking things up on the web before the answer starts. */
   searching?: boolean;
   /** The web results this answer may cite as [1], [2]. */
@@ -49,13 +48,15 @@ export type Highlight = { id: string; articleId: string; anchor: Anchor; created
 
 export type BriefState =
   | { status: "loading" }
-  | { status: "ready"; data: BriefData; usage?: Usage; modelKey?: ModelKey; at: number }
-  | { status: "error"; error: string; needKey?: boolean };
+  | { status: "ready"; data: BriefData; usage?: Usage; modelKey?: ModelKey; model?: string; at: number }
+  | { status: "error"; error: string };
 
 export type { Settings } from "./settings";
 
 export type LibraryItem = {
   id: string;
+  /** Missing on everything shelved before activities existed: those are readings. */
+  kind?: "reading" | "activity";
   title: string;
   author?: string;
   source?: string;
@@ -75,10 +76,14 @@ export type LibraryItem = {
   sourceUrl?: string;
   /** The page's own lead picture. */
   image?: string;
-  /** A painted cover: a bundled one by path, or "painted" for one made for this text. */
+  /** Its cover: a bundled one by path, an image URL, or "painted" / "uploaded" for one kept on the server. */
   cover?: string;
+  /** Changes whenever a server-kept cover does, so browsers fetch the new one. */
+  coverRev?: number;
+  /** The cloth colour, chosen by hand; otherwise one of its topic's shades, picked by its id. */
+  color?: string;
   favorite?: boolean;
-  /** When it was first read to the end. */
+  /** Older builds kept the finished date here; it is moved into `finished` on load, which stays on this computer. */
   finishedAt?: number;
   /** Shelved by an agent, through the Gloss MCP server. */
   addedBy?: "agent";
@@ -88,14 +93,11 @@ export type LibraryItem = {
 
 export type Progress = { block: string; pct: number; at: number };
 
-/** A row from the account, as the sync route sends it. `data` is null on a tombstone. */
+/** A row from the server, as the sync route sends it. `data` is null on a tombstone. */
 export type RemoteRow<T> = { id: string; articleId: string; data: T | null; deleted: boolean };
 export type RemoteChanges = {
   articles?: RemoteRow<LibraryItem>[];
-  highlights?: RemoteRow<Highlight>[];
-  glosses?: RemoteRow<Gloss>[];
-  briefs?: RemoteRow<BriefState>[];
-  progress?: RemoteRow<Progress>[];
+  topics?: RemoteRow<TopicRow>[];
 };
 
 type Persisted = {
@@ -103,7 +105,12 @@ type Persisted = {
   highlights: Record<string, Highlight[]>;
   briefs: Record<string, BriefState>;
   progress: Record<string, Progress>;
+  /** When each book was first read to the end, or an activity last opened: this computer's, never synced. */
+  finished: Record<string, number>;
+  opened: Record<string, number>;
   library: LibraryItem[];
+  /** The family's topics, as last synced. Empty until the first sync: the built-in ones stand in. */
+  topics: TopicRow[];
 };
 
 type UI = {
@@ -139,14 +146,27 @@ type State = Persisted &
     removeHighlight: (articleId: string, id: string) => void;
     setBrief: (articleId: string, b: BriefState | null) => void;
     setProgress: (articleId: string, p: Progress) => void;
+    /** An activity was opened from the shelf, just now. */
+    markOpened: (id: string) => void;
     addToLibrary: (a: Article, words: number, extra?: Partial<LibraryItem>) => void;
+    /** Shelve a book with no text of its own here: an activity. */
+    addItem: (item: LibraryItem) => void;
     /** Change a shelf entry's library fields: its topic, tags, cover, favourite. */
     shelve: (id: string, patch: Partial<LibraryItem>) => void;
     removeFromLibrary: (id: string) => void;
     replaceText: (a: Article, words: number) => Promise<boolean>;
     updateText: (a: Article, words: number) => Promise<boolean>;
     applyRemote: (c: RemoteChanges) => void;
+    /** Add a topic, or change one. */
+    saveTopic: (row: TopicRow) => void;
+    /** Take a topic away; its books move to Unsorted. */
+    removeTopic: (key: string) => void;
+    /** Put the topics in this order, by key. */
+    orderTopics: (keys: string[]) => void;
   };
+
+/** What the family's topics are, as rows: the synced ones, or the built-in ones before the first sync. */
+export const topicRowsOf = (rows: TopicRow[]) => (rows.length ? rows : DEFAULT_TOPICS);
 
 const KEY = "gloss:v1";
 const DOC_PREFIX = "gloss:doc:";
@@ -159,7 +179,10 @@ export const useStore = create<State>((set, get) => ({
   highlights: {},
   briefs: {},
   progress: {},
+  finished: {},
+  opened: {},
   library: [],
+  topics: [],
   settings: DEFAULT_SETTINGS,
   hydrated: false,
   activeGloss: null,
@@ -197,12 +220,25 @@ export const useStore = create<State>((set, get) => ({
     }
     const briefs = data.briefs ?? {};
     for (const [k, b] of Object.entries(briefs)) if (b.status !== "ready") delete briefs[k];
+    // Finished dates used to ride on the shelf entry, which is shared now: they move to this computer's own record.
+    const finished = { ...(data.finished ?? {}) };
+    const library = (data.library ?? []).map((x) => {
+      if (!x.finishedAt) return x;
+      finished[x.id] ??= x.finishedAt;
+      const { finishedAt: _, ...rest } = x;
+      return rest;
+    });
+    const topics = Array.isArray(data.topics) ? data.topics : [];
+    setTopics(topicRowsOf(topics));
     set({
+      topics,
       glosses,
       highlights: data.highlights ?? {},
       briefs,
       progress: data.progress ?? {},
-      library: data.library ?? [],
+      finished,
+      opened: data.opened ?? {},
+      library,
       settings: { ...DEFAULT_SETTINGS, ...settings, model: modelOf(settings.model) },
       hydrated: true,
     });
@@ -264,13 +300,15 @@ export const useStore = create<State>((set, get) => ({
 
   setProgress: (articleId, p) =>
     set((st) => {
-      // The first time a text is read to the end, the library notes when.
-      const done = p.pct >= 1 && st.library.some((x) => x.id === articleId && !x.finishedAt);
+      // The first time a text is read to the end, this computer notes when.
+      const done = p.pct >= 1 && !st.finished[articleId];
       return {
         progress: { ...st.progress, [articleId]: p },
-        ...(done ? { library: st.library.map((x) => (x.id === articleId ? { ...x, finishedAt: p.at } : x)) } : {}),
+        ...(done ? { finished: { ...st.finished, [articleId]: p.at } } : {}),
       };
     }),
+
+  markOpened: (id) => set((st) => ({ opened: { ...st.opened, [id]: Date.now() } })),
 
   addToLibrary: (a, words, extra) =>
     set((st) => {
@@ -294,7 +332,23 @@ export const useStore = create<State>((set, get) => ({
       return { library: [item, ...st.library.filter((x) => x.id !== a.id)] };
     }),
 
-  shelve: (id, patch) => set((st) => ({ library: st.library.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
+  addItem: (item) =>
+    set((st) => {
+      const clean = { ...item };
+      for (const k of Object.keys(clean) as (keyof LibraryItem)[]) if (clean[k] === undefined) delete clean[k];
+      return { library: [clean, ...st.library.filter((x) => x.id !== item.id)] };
+    }),
+
+  // Fields set to undefined are dropped, so taking a colour or cover off leaves no trace in the synced JSON.
+  shelve: (id, patch) =>
+    set((st) => ({
+      library: st.library.map((x) => {
+        if (x.id !== id) return x;
+        const next = { ...x, ...patch };
+        for (const k of Object.keys(next) as (keyof LibraryItem)[]) if (next[k] === undefined) delete next[k];
+        return next;
+      }),
+    })),
 
   removeFromLibrary: (id) => {
     void dropDoc(id);
@@ -326,8 +380,7 @@ export const useStore = create<State>((set, get) => ({
     return true;
   },
 
-  // Changes from another device. The server's copy replaces the local one,
-  // except a gloss that is still being written here.
+  // Changes to the shelf from another computer. The server's copy replaces the local one.
   applyRemote: (c) =>
     set((st) => {
       let library = st.library;
@@ -336,37 +389,38 @@ export const useStore = create<State>((set, get) => ({
         if (r.deleted || !r.data) void dropDoc(r.id);
         else library = [r.data, ...library];
       }
-
-      const merge = <T extends { id: string; createdAt: number }>(cur: Record<string, T[]>, rows: RemoteRow<T>[] = [], keep?: (t: T) => boolean) => {
-        if (!rows.length) return cur;
-        const next = { ...cur };
-        for (const r of rows) {
-          const list = next[r.articleId] ?? [];
-          const local = list.find((x) => x.id === r.id);
-          if (local && keep?.(local)) continue;
-          next[r.articleId] = list.filter((x) => x.id !== r.id);
-          if (!r.deleted && r.data) next[r.articleId] = [...next[r.articleId], r.data].sort((a, b) => a.createdAt - b.createdAt);
+      let topics = st.topics;
+      if (c.topics?.length) {
+        for (const r of c.topics) {
+          topics = topics.filter((x) => x.key !== r.id);
+          if (!r.deleted && r.data?.name) topics = [...topics, { ...r.data, key: r.id }];
         }
-        return next;
-      };
+        setTopics(topicRowsOf(topics));
+      }
+      return { library, topics };
+    }),
 
-      const byArticle = <T,>(cur: Record<string, T>, rows: RemoteRow<T>[] = []) => {
-        if (!rows.length) return cur;
-        const next = { ...cur };
-        for (const r of rows) {
-          if (r.deleted || !r.data) delete next[r.id];
-          else next[r.id] = r.data;
-        }
-        return next;
-      };
+  saveTopic: (row) =>
+    set((st) => {
+      const base = topicRowsOf(st.topics);
+      const topics = base.some((x) => x.key === row.key) ? base.map((x) => (x.key === row.key ? row : x)) : [...base, { ...row, sort: Math.max(0, ...base.filter((x) => x.key !== UNSORTED).map((x) => x.sort + 1)) }];
+      setTopics(topics);
+      return { topics };
+    }),
 
-      return {
-        library,
-        highlights: merge(st.highlights, c.highlights),
-        glosses: merge(st.glosses, c.glosses, (g) => g.turns.some((t) => t.streaming)),
-        briefs: byArticle(st.briefs, c.briefs),
-        progress: byArticle(st.progress, c.progress),
-      };
+  removeTopic: (key) =>
+    set((st) => {
+      if (key === UNSORTED) return {};
+      const topics = topicRowsOf(st.topics).filter((x) => x.key !== key);
+      setTopics(topics);
+      return { topics, library: st.library.map((x) => (x.topic === key ? { ...x, topic: UNSORTED } : x)) };
+    }),
+
+  orderTopics: (keys) =>
+    set((st) => {
+      const topics = topicRowsOf(st.topics).map((x) => ({ ...x, sort: keys.includes(x.key) ? keys.indexOf(x.key) : keys.length }));
+      setTopics(topics);
+      return { topics };
     }),
 }));
 
@@ -381,14 +435,17 @@ if (typeof window !== "undefined") {
       st.highlights === prev.highlights &&
       st.briefs === prev.briefs &&
       st.progress === prev.progress &&
-      st.library === prev.library
+      st.finished === prev.finished &&
+      st.opened === prev.opened &&
+      st.library === prev.library &&
+      st.topics === prev.topics
     )
       return;
     if (t) clearTimeout(t);
     t = setTimeout(() => {
-      const { glosses, highlights, briefs, progress, library } = useStore.getState();
+      const { glosses, highlights, briefs, progress, finished, opened, library, topics } = useStore.getState();
       try {
-        localStorage.setItem(KEY, JSON.stringify({ glosses, highlights, briefs, progress, library }));
+        localStorage.setItem(KEY, JSON.stringify({ glosses, highlights, briefs, progress, finished, opened, library, topics }));
       } catch {}
     }, 400);
   });

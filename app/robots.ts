@@ -1,9 +1,6 @@
 import type { MetadataRoute } from "next";
-import { SITE_URL } from "@/lib/brand";
 
+/** A private family library: no crawler is welcome anywhere. */
 export default function robots(): MetadataRoute.Robots {
-  return {
-    rules: { userAgent: "*", allow: "/", disallow: ["/api/", "/mcp"] },
-    sitemap: `${SITE_URL}/sitemap.xml`,
-  };
+  return { rules: { userAgent: "*", disallow: "/" } };
 }

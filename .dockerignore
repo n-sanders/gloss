@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+.env*
+!.env.example
+data
+scripts
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+.claude
+.clerk
+.cursor
+Dockerfile
+docker-compose.yml
+README.md

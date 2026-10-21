@@ -1,22 +1,24 @@
 "use client";
 
-import { SignInButton } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, BookmarkPlus, Check, Copy, Loader2, Plus, Trash2, X } from "lucide-react";
+import { BookOpen, BookmarkPlus, Check, Copy, Loader2, Trash2, X } from "lucide-react";
 import { importFromUrl, keep, looksLikeUrl } from "@/lib/import";
 import { normalizeUrl } from "@/lib/links";
 import { useStore } from "@/lib/store";
-import { Mark, MarkStack, type AgentMark } from "./AgentMarks";
+import { Mark, type AgentMark } from "./AgentMarks";
 import { Glyph } from "./Book";
 
-export type AddTab = "links" | "agent";
+export type AddTab = "activity" | "links" | "agent";
+
+export type ActivitySeed = { url?: string; title?: string; dek?: string; image?: string; site?: string };
 
 /**
- * Adding to the library: paste links (one or many), or connect an agent that
- * saves to it through the Gloss MCP server.
+ * Adding to the library: an activity (a link out to another site, finished in
+ * the book editor), readings by link (one or many), or an agent that saves to
+ * it through the Gloss MCP server.
  */
-export function AddPanel({ tab, onTab, onClose, signedIn }: { tab: AddTab; onTab: (t: AddTab) => void; onClose: () => void; signedIn: boolean }) {
+export function AddPanel({ tab, onTab, onClose, onActivity }: { tab: AddTab; onTab: (t: AddTab) => void; onClose: () => void; onActivity: (seed: ActivitySeed) => void }) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -39,43 +41,87 @@ export function AddPanel({ tab, onTab, onClose, signedIn }: { tab: AddTab; onTab
       <section role="dialog" aria-modal aria-label="Add to the library" className="add-panel">
         <header className="flex items-center justify-between gap-3">
           <div className="lib-sort !ml-0" role="tablist" aria-label="Add">
-            <button type="button" role="tab" aria-selected={tab === "agent"} aria-checked={tab === "agent"} onClick={() => onTab("agent")}>
-              Connect an agent
+            <button type="button" role="tab" aria-selected={tab === "activity"} aria-checked={tab === "activity"} onClick={() => onTab("activity")}>
+              An activity
             </button>
             <button type="button" role="tab" aria-selected={tab === "links"} aria-checked={tab === "links"} onClick={() => onTab("links")}>
-              Save links manually
+              A reading
+            </button>
+            <button type="button" role="tab" aria-selected={tab === "agent"} aria-checked={tab === "agent"} onClick={() => onTab("agent")}>
+              An agent
             </button>
           </div>
           <button type="button" aria-label="Close" data-tip="Close" data-tip-kbd="Esc" onClick={onClose} className="grid size-9 place-items-center rounded-full text-ink-3 transition-colors hover:bg-sunk hover:text-ink">
             <X size={17} />
           </button>
         </header>
-        {tab === "links" ? <Links /> : <Agent signedIn={signedIn} />}
+        {tab === "activity" ? <Activity onNext={onActivity} /> : tab === "links" ? <Links /> : <Agent />}
       </section>
     </div>,
     document.body
   );
 }
 
-/**
- * What opens the panel: plain about adding articles, with the agents that can
- * do it for you. On hover the marks fan out to the right from Grok, which
- * holds its place, and the plus turns.
- */
-export function AddButton({ onClick, compact }: { onClick: () => void; compact?: boolean }) {
+/* ---------- an activity ---------- */
+
+/** A link to another site: looked up for its title, description and picture, then finished in the book editor. */
+function Activity({ onNext }: { onNext: (seed: ActivitySeed) => void }) {
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const full = (v: string) => (/^https?:\/\//i.test(v.trim()) ? v.trim() : `https://${v.trim()}`);
+
+  const lookUp = async () => {
+    if (!url.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/activity-meta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: full(url) }) });
+      const j = (await res.json().catch(() => ({}))) as { meta?: { url: string; title?: string; description?: string; image?: string; site?: string }; error?: string };
+      setBusy(false);
+      if (!j.meta) {
+        setErr(`${j.error ?? "Could not look that link up."} You can still fill in the details yourself.`);
+        return;
+      }
+      onNext({ url: j.meta.url, title: j.meta.title, dek: j.meta.description, image: j.meta.image, site: j.meta.site });
+    } catch {
+      setBusy(false);
+      setErr("Could not reach the library. You can still fill in the details yourself.");
+    }
+  };
+
   return (
-    <button type="button" onClick={onClick} className={`lib-add${compact ? " is-compact" : ""}`}>
-      <MarkStack size={compact ? 22 : 26} />
-      <span className="min-w-0 text-left">
-        <span className="lib-add-title">Add articles</span>
-        {!compact && <span className="lib-add-sub">Connect an agent, or paste links</span>}
-      </span>
-      {!compact && (
-        <span className="lib-add-plus" aria-hidden>
-          <Plus size={15} strokeWidth={2.2} />
-        </span>
-      )}
-    </button>
+    <div className="mt-5">
+      <p className="font-serif text-[19px] leading-tight text-ink">Put an activity on the shelf</p>
+      <p className="mt-1 text-[13px] leading-[1.5] text-ink-3">A game, a quiz, a practice site: anything that lives on the web. Paste its link and Gloss fills in what it can; you finish the rest.</p>
+      <form
+        className="mt-4 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void lookUp();
+        }}
+      >
+        <input
+          autoFocus
+          type="text"
+          inputMode="url"
+          value={url}
+          spellCheck={false}
+          placeholder="https://math-arcade.example"
+          aria-label="The activity's link"
+          onChange={(e) => setUrl(e.target.value)}
+          className="be-input min-w-0 flex-1"
+        />
+        <button type="submit" className="add-btn !mt-0" disabled={!url.trim() || busy}>
+          {busy && <Loader2 size={14} className="animate-spin" />}
+          Next
+        </button>
+      </form>
+      {err && <p className="mt-2 text-[12.5px] text-rubric-text">{err}</p>}
+      <button type="button" className="mt-3 text-[12.5px] text-ink-3 underline decoration-rule-strong underline-offset-4 hover:text-ink" onClick={() => onNext({ url: url.trim() ? full(url) : undefined })}>
+        Skip the lookup and fill it in by hand
+      </button>
+    </div>
   );
 }
 
@@ -230,7 +276,7 @@ function Links() {
 function Bookmarklets() {
   const readRef = useRef<HTMLAnchorElement>(null);
   const saveRef = useRef<HTMLAnchorElement>(null);
-  const [origin, setOrigin] = useState("https://usegloss.io");
+  const [origin, setOrigin] = useState("");
   const code = (param: "url" | "save") => `javascript:void(window.open('${origin}/?${param}='+encodeURIComponent(location.href)))`;
   useEffect(() => setOrigin(window.location.origin), []);
   // React refuses javascript: links in JSX, so they are set by hand.
@@ -271,34 +317,20 @@ const LABELS: { label: string; mark?: AgentMark }[] = [
   { label: "Other" },
 ];
 
-function Agent({ signedIn }: { signedIn: boolean }) {
+function Agent() {
   const [conns, setConns] = useState<Conn[] | null>(null);
   const [made, setMade] = useState<{ token: string; label: string } | null>(null);
   const [label, setLabel] = useState("Grok Bot");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://usegloss.io";
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   useEffect(() => {
-    if (!signedIn) return;
     fetch("/api/agent-tokens")
       .then((r) => r.json())
       .then((j: { tokens?: Conn[] }) => setConns(j.tokens ?? []))
       .catch(() => setConns([]));
-  }, [signedIn]);
-
-  if (!signedIn)
-    return (
-      <div className="mt-5">
-        <AgentIntro />
-        <p className="mt-4 text-[13.5px] text-ink-2">An agent saves to the library in your account, so it needs you signed in.</p>
-        <SignInButton mode="modal">
-          <button type="button" className="add-btn mt-4">
-            Sign in to connect
-          </button>
-        </SignInButton>
-      </div>
-    );
+  }, []);
 
   const create = async () => {
     setBusy(true);
@@ -367,16 +399,16 @@ function AgentIntro() {
     <div className="flex items-start gap-3.5">
       <Glyph k="agent" size={46} className="shrink-0" />
       <div>
-        <p className="font-serif text-[19px] leading-tight text-ink">Let your agent shelve for you</p>
+        <p className="font-serif text-[19px] leading-tight text-ink">Let an agent help fill the shelf</p>
         <p className="mt-1 text-[13px] leading-[1.5] text-ink-3">
-          Gloss has an MCP server. Give it to Grok Bot, Claude or ChatGPT, then ask: &ldquo;go through my X bookmarks from this month and save the articles to my Gloss library.&rdquo; Each one is read in, sorted onto a topic, and on your shelves the next time you open Gloss.
+          Gloss has an MCP server. Give it to Grok Bot, Claude or ChatGPT, then ask: &ldquo;find three free fraction games for a nine-year-old and save them to our Gloss library.&rdquo; Each one is sorted onto a topic and on the shelf the next time anyone opens Gloss.
         </p>
       </div>
     </div>
   );
 }
 
-const PROMPT = "Go through my X bookmarks from the last month, find the ones that link to articles, essays or papers, and save those links to my Gloss library.";
+const PROMPT = "Find three free, ad-light websites where a nine-year-old can practise fractions, and save each one to our Gloss library as an activity, with a short description.";
 
 function Setup({ token, label, origin }: { token: string; label: string; origin: string }) {
   const url = `${origin}/mcp`;
@@ -400,7 +432,7 @@ function Setup({ token, label, origin }: { token: string; label: string; origin:
       {steps.map((s) => (
         <CopyBlock key={s.title} title={s.title} body={s.body} text={s.copy} />
       ))}
-      <CopyBlock title="Then ask it something like" body="Agents save the article a post links to. When the post is the piece, like an X Article or a long post, they send its text." text={PROMPT} />
+      <CopyBlock title="Then ask it something like" body="Games and practice sites come in as activities, sorted onto your topics. Articles and stories come in as readings." text={PROMPT} />
     </div>
   );
 }

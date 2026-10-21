@@ -1,5 +1,5 @@
 import type { Action } from "./actions";
-import type { ChatMessage } from "./together";
+import type { ChatMessage } from "./openrouter";
 
 export type DocPayload = {
   title: string;
@@ -21,8 +21,8 @@ export type ThreadPayload = {
 
 /**
  * The system message carries the whole text and nothing that varies per
- * question, so Together's prefix cache serves every follow-up on the same
- * article at the cached rate (about 2% of the fresh input price on Flash).
+ * question, so a provider's prefix cache can serve every follow-up on the
+ * same article at the cached rate.
  */
 export function systemFor(doc: DocPayload): string {
   const byline = [doc.author, doc.published].filter(Boolean).join(", ");

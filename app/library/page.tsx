@@ -1,9 +1,6 @@
-import type { Metadata } from "next";
-import { Library } from "@/components/library/Library";
-import "./library.css";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Library", alternates: { canonical: "/library" } };
-
+/** The shelf is the home page now; old links and bookmarks land there. */
 export default function LibraryPage() {
-  return <Library />;
+  redirect("/");
 }

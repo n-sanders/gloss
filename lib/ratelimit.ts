@@ -1,7 +1,4 @@
-/**
- * The request's address, and a small per-instance counter. The daily free
- * allowance lives in lib/quota.ts and uses this only when there is no database.
- */
+/** The request's address, and a small in-memory counter. */
 const buckets = new Map<string, { count: number; reset: number }>();
 
 export function clientId(req: Request): string {

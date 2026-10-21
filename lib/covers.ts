@@ -1,90 +1,64 @@
 "use client";
 
 /**
- * Painted covers in the browser: kept in their own IndexedDB store, fetched
- * from the account when they were painted on another device, and painted on
- * request when the reader has turned painted covers on (off by default; each
- * one is a call to an image model).
+ * Covers in the browser. Painted and uploaded covers both live on the server,
+ * so every computer shows the same one; a book's `coverRev` changes when its
+ * cover does, so a browser never shows an old picture from its cache.
+ *
+ * Painting is opt-in (each one is a call to an image model): with it on, any
+ * sorted book without a cover gets one, a couple at a time.
  */
 
-import { readApiKey } from "./ask";
-import { isTopic } from "./library";
 import { useStore, type LibraryItem } from "./store";
 
-const DB = "gloss-covers";
-const STORE = "covers";
-
-let opening: Promise<IDBDatabase> | null = null;
-function idb(): Promise<IDBDatabase> {
-  return (opening ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  }));
+/** Where a book's own cover is: a server-kept one, or an image URL. Null for the page picture or the topic's plate. */
+export function coverSrc(b: { id: string; cover?: string; coverRev?: number }): string | null {
+  if (b.cover === "painted" || b.cover === "uploaded") return `/api/covers/${encodeURIComponent(b.id)}?v=${b.coverRev ?? 0}`;
+  if (b.cover && /^(\/|https?:\/\/)/.test(b.cover)) return b.cover;
+  return null;
 }
 
-async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T | null> {
+export const serverKept = (cover?: string) => cover === "painted" || cover === "uploaded";
+
+/** Paint a cover for a book, kept on the server under its id. "rest" means painting is not possible right now. */
+export async function paintCover(id: string, scene: string, topic?: string): Promise<{ ok: true } | { ok: false; rest: boolean; error: string }> {
   try {
-    const db = await idb();
-    return await new Promise<T>((resolve, reject) => {
-      const r = fn(db.transaction(STORE, mode).objectStore(STORE));
-      r.onsuccess = () => resolve(r.result);
-      r.onerror = () => reject(r.error);
-    });
+    const res = await fetch("/api/covers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, scene, topic }) });
+    if (res.ok) return { ok: true };
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, rest: res.status === 503 || res.status === 429, error: j.error ?? "Could not paint a cover." };
   } catch {
-    return null;
+    return { ok: false, rest: false, error: "Could not reach the server." };
   }
 }
 
-const urls = new Map<string, string>();
-
-/** A painted cover's picture, as an object URL: this device first, then the account. */
-export async function paintedUrl(id: string): Promise<string | null> {
-  const hit = urls.get(id);
-  if (hit) return hit;
-  let blob = (await tx<Blob>("readonly", (s) => s.get(id))) ?? null;
-  if (!blob) {
-    try {
-      const res = await fetch(`/api/covers/${encodeURIComponent(id)}`);
-      if (res.ok) {
-        blob = await res.blob();
-        await tx("readwrite", (s) => s.put(blob, id));
-      }
-    } catch {}
-  }
-  if (!blob) return null;
-  const url = URL.createObjectURL(blob);
-  urls.set(id, url);
-  return url;
-}
-
-export const forgetCover = (id: string) => tx("readwrite", (s) => s.delete(id));
-
-/** Paint one text's cover. "rest" means the free allowance is spent, so the queue should stop. */
-export async function paint(item: LibraryItem): Promise<"ok" | "rest" | "error"> {
-  if (!item.scene || !isTopic(item.topic)) return "error";
+/** Upload a picture as a book's cover. Null when it worked, or what went wrong. */
+export async function putCover(id: string, file: Blob): Promise<string | null> {
   try {
-    const res = await fetch("/api/covers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: item.id, scene: item.scene, topic: item.topic, apiKey: readApiKey() || undefined }),
-    });
-    if (res.status === 429 || res.status === 401) return "rest";
-    if (!res.ok) return "error";
-    const blob = await res.blob();
-    await tx("readwrite", (s) => s.put(blob, item.id));
-    urls.delete(item.id);
-    useStore.getState().shelve(item.id, { cover: "painted" });
-    return "ok";
+    const res = await fetch(`/api/covers/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+    if (res.ok) return null;
+    return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Could not upload that picture.";
   } catch {
-    return "error";
+    return "Could not reach the server.";
   }
+}
+
+export async function deleteCover(id: string): Promise<void> {
+  await fetch(`/api/covers/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+}
+
+/** Paint one shelved book's cover. "rest" means painting is not possible right now, so the queue should stop. */
+async function paint(item: LibraryItem): Promise<"ok" | "rest" | "error"> {
+  if (!item.scene) return "error";
+  const r = await paintCover(item.id, item.scene, item.topic);
+  if (!r.ok) return r.rest ? "rest" : "error";
+  useStore.getState().shelve(item.id, { cover: "painted", coverRev: Date.now() });
+  return "ok";
 }
 
 let painting = false;
 
-/** Paint every sorted text that has no cover yet, until the allowance runs out. */
+/** Paint every sorted book that has no cover yet, until painting is not possible. */
 export async function paintAll(items: LibraryItem[]): Promise<void> {
   if (painting) return;
   painting = true;
@@ -94,7 +68,7 @@ export async function paintAll(items: LibraryItem[]): Promise<void> {
     let rest = false;
     const worker = async () => {
       for (;;) {
-        const next = useStore.getState().library.find((x) => !x.cover && x.scene && !taken.has(x.id) && items.some((i) => i.id === x.id));
+        const next = useStore.getState().library.find((x) => !x.cover && !x.image && x.scene && !taken.has(x.id) && items.some((i) => i.id === x.id));
         if (!next || rest) return;
         taken.add(next.id);
         if ((await paint(next)) === "rest") rest = true;

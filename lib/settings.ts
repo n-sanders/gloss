@@ -52,7 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   paras: "spaced",
   marker: "yellow",
   length: "normal",
-  model: "flash",
+  model: "chat",
   search: true,
   numbers: false,
   rail: true,

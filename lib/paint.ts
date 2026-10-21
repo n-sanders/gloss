@@ -1,37 +1,18 @@
 /**
- * A painted cover for one text, on the server: the scene the classifier
- * wrote, as a two-colour risograph print in its topic's inks. The title is
- * never in the prompt, or the model letters it onto the picture.
+ * A painted cover for one book, on the server: the scene the classifier
+ * wrote, as a two-colour risograph print in its topic's inks, from the image
+ * model chosen in Settings. The title is never in the prompt, or the model
+ * letters it onto the picture.
  */
 
-import { TOPIC, type TopicKey } from "./library";
-import { APP_UA } from "./together";
+import { complete } from "./openrouter";
+import { modelFor } from "./model-config";
 
-const MODEL = "black-forest-labs/FLUX.2-dev";
-const SIZE = 640;
-/**
- * What one cover costs, charged to the free allowance. FLUX.2 [dev] at 640px:
- * an estimate on the high side until Together's per-megapixel price is checked.
- */
-export const COVER_USD = 0.02;
-
-export async function paintCover(req: { scene: string; topic: TopicKey; apiKey?: string; signal?: AbortSignal }): Promise<{ ok: true; jpeg: Uint8Array } | { ok: false; error: string }> {
-  const apiKey = req.apiKey?.trim() || process.env.TOGETHER_API_KEY;
-  if (!apiKey) return { ok: false, error: "No Together API key." };
-  const prompt = `Editorial risograph print. ${req.scene.replace(/\.?$/, ".")} Two-colour palette of ${TOPIC[req.topic].inks} ink on warm cream paper filling the whole image, grain and halftone texture, mid-century book-cover illustration, wordless, no lettering, no border.`;
-  let res: Response;
-  try {
-    res = await fetch("https://api.together.xyz/v1/images/generations", {
-      method: "POST",
-      signal: req.signal,
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "User-Agent": APP_UA },
-      body: JSON.stringify({ model: MODEL, prompt, width: SIZE, height: SIZE, n: 1, response_format: "base64", prompt_upsampling: false }),
-    });
-  } catch (e) {
-    return { ok: false, error: `Could not reach Together: ${String(e)}` };
-  }
-  const j = (await res.json().catch(() => ({}))) as { data?: { b64_json?: string }[]; error?: { message?: string } };
-  const b64 = j.data?.[0]?.b64_json;
-  if (!res.ok || !b64) return { ok: false, error: j.error?.message ?? `Together answered ${res.status}.` };
-  return { ok: true, jpeg: Uint8Array.from(Buffer.from(b64, "base64")) };
+export async function paintCover(req: { scene: string; inks: string; signal?: AbortSignal }): Promise<{ ok: true; image: Uint8Array; mime: string } | { ok: false; error: string; code?: "not_configured" }> {
+  const prompt = `Make a square picture. Editorial risograph print. ${req.scene.replace(/\.?$/, ".")} Two-colour palette of ${req.inks} ink on warm cream paper filling the whole image, grain and halftone texture, mid-century children's book illustration, wordless, no lettering, no border.`;
+  const r = await complete({ model: modelFor("image"), image: true, maxTokens: 1200, signal: req.signal, messages: [{ role: "user", content: prompt }] });
+  if (!r.ok) return r;
+  const m = r.images[0]?.match(/^data:(image\/[a-z+]+);base64,(.+)$/);
+  if (!m) return { ok: false, error: "The image model sent back no picture. Pick a model that makes images in Settings." };
+  return { ok: true, image: Uint8Array.from(Buffer.from(m[2], "base64")), mime: m[1] };
 }

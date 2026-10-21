@@ -11,7 +11,7 @@
 import type { Source } from "./models";
 
 const EXA_URL = "https://api.exa.ai/search";
-/** What a search costs when Exa does not say, charged against a free reader's budget. */
+/** What a search costs when Exa does not say, added to the answer's receipt. */
 export const SEARCH_USD = 0.004;
 
 /** The tool the model is offered. Its description is what decides when it searches. */

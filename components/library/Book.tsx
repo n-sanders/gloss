@@ -1,13 +1,28 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
-import { paintedUrl } from "@/lib/covers";
-import { iconSrc, lookOf, TOPIC, topicArtSrc, type Book, type Look, type TagKey, type TopicKey } from "@/lib/library";
+import { memo, useState } from "react";
+import { coverSrc } from "@/lib/covers";
+import { isTag, lookOf, TAG_EMOJI, TOPIC, topicOf, type Book, type Look, type TagKey, type TopicKey } from "@/lib/library";
 
-/** One of the library's own emoji: a small clay figure for a topic or a tag. */
+/** A topic's or a tag's emoji, sized like an icon. */
 export function Glyph({ k, size = 18, className = "" }: { k: TopicKey | TagKey; size?: number; className?: string }) {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={iconSrc(k)} alt="" width={size} height={size} draggable={false} decoding="async" className={`glyph ${className}`} />;
+  const emoji = isTag(k) ? TAG_EMOJI[k] : TOPIC[topicOf(k)].emoji;
+  return (
+    <span aria-hidden className={`glyph ${className}`} style={{ ["--g" as string]: `${size}px` }}>
+      {emoji}
+    </span>
+  );
+}
+
+/** A topic's picture, for a book with no cover of its own: its emoji on a pattern in its colours. */
+export function TopicArt({ k, className = "" }: { k: TopicKey; className?: string }) {
+  const t = TOPIC[topicOf(k)];
+  const [base, light, dark, pale] = t.shades;
+  return (
+    <span aria-hidden className={`topic-art ${className}`} style={{ ["--a" as string]: base, ["--b" as string]: light, ["--c" as string]: dark, ["--d" as string]: pale }}>
+      <span className="topic-art-emoji">{t.emoji}</span>
+    </span>
+  );
 }
 
 const lastName = (a: string) => a.split(/&|,| and /)[0].trim().split(/\s+/).slice(-1)[0] || a;
@@ -15,7 +30,7 @@ const lastName = (a: string) => a.split(/&|,| and /)[0].trim().split(/\s+/).slic
 /** A book seen end-on: cloth, a title running down it, the author at the foot. */
 export const Spine = memo(function Spine({ book, look = lookOf(book) }: { book: Book; look?: Look }) {
   const { w, h, color, fg, style } = look;
-  const t = TOPIC[book.topic];
+  const t = TOPIC[topicOf(book.topic)];
   const wide = w >= 52;
   const by = lastName(book.author);
   // The author across the foot, as large as fits; on a spine too slim for the
@@ -61,38 +76,30 @@ export const Spine = memo(function Spine({ book, look = lookOf(book) }: { book: 
 });
 
 /**
- * The picture on a cover, best first: a painted cover (bundled, or painted for
- * this text), then the page's own picture printed in the topic's ink, then the
+ * The picture on a cover, best first: its own cover (painted, uploaded or
+ * linked), then the page's own picture printed in the topic's ink, then the
  * topic's plate.
  */
 export function Plate({ book, reveal = false }: { book: Book; reveal?: boolean }) {
-  const [painted, setPainted] = useState<string | null>(null);
-  const [broken, setBroken] = useState(false);
-  useEffect(() => {
-    if (book.cover !== "painted") return;
-    let live = true;
-    void paintedUrl(book.id).then((u) => live && setPainted(u));
-    return () => {
-      live = false;
-    };
-  }, [book.id, book.cover]);
-
+  // Pictures that failed to load, by address, so a new cover gets its own chance.
+  const [broken, setBroken] = useState<string[]>([]);
+  const fail = (src: string) => () => setBroken((b) => [...b, src]);
   const cls = reveal ? "is-revealing" : "";
-  if (book.cover?.startsWith("/") || painted) {
+  const own = coverSrc(book);
+  if (own && !broken.includes(own)) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={painted ?? book.cover} alt="" decoding="async" draggable={false} className={cls} />;
+    return <img src={own} alt="" decoding="async" draggable={false} referrerPolicy="no-referrer" className={cls} onError={fail(own)} />;
   }
-  if (book.image && !broken) {
-    const t = TOPIC[book.topic];
+  if (book.image && !broken.includes(book.image)) {
+    const t = TOPIC[topicOf(book.topic)];
     return (
       <span className="duotone" style={{ ["--ink-c" as string]: t.shades[2] }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={book.image} alt="" decoding="async" loading="lazy" draggable={false} referrerPolicy="no-referrer" className={cls} onError={() => setBroken(true)} />
+        <img src={book.image} alt="" decoding="async" loading="lazy" draggable={false} referrerPolicy="no-referrer" className={cls} onError={fail(book.image)} />
       </span>
     );
   }
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={topicArtSrc(book.topic)} alt="" decoding="async" draggable={false} className={cls} />;
+  return <TopicArt k={book.topic} className={cls} />;
 }
 
 /**
@@ -100,7 +107,7 @@ export function Plate({ book, reveal = false }: { book: Book; reveal?: boolean }
  * Sized by its container, so the same cover works at any scale.
  */
 export const Cover = memo(function Cover({ book, look = lookOf(book), draw = false }: { book: Book; look?: Look; draw?: boolean }) {
-  const t = TOPIC[book.topic];
+  const t = TOPIC[topicOf(book.topic)];
   return (
     <div className="cover" data-light={look.light || undefined} style={{ background: look.color, color: look.fg }}>
       <div className="cover-plate">

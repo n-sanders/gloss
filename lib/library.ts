@@ -1,87 +1,114 @@
 /**
- * The library: every text on your shelf, shelved by topic. A fixed set of
- * topics, each with a cloth colour (four shades, so its books look like a
- * set), a painted plate and a small clay icon. Books get their spine, height
- * and colour from their id, so the same book always looks the same.
+ * The library: every book on the shelf, shelved by topic. The topics are the
+ * family's own (kept in SQLite and synced like the shelf); each has one cloth
+ * colour, from which four shades are made so its books look like a set, and
+ * an emoji. Books get their spine, height and colour from their id, so the
+ * same book always looks the same.
  *
  * Shared by the client (the shelves) and the server (the classifier and the
- * agent server): no React, no store, no fetches.
+ * agent server): no React, no store, no fetches. `TOPICS` and `TOPIC` are
+ * filled in place by setTopics, so every importer sees the current list.
  */
 
-export type TopicKey =
-  | "ai"
-  | "programming"
-  | "infra"
-  | "data"
-  | "security"
-  | "tech"
-  | "design"
-  | "product"
-  | "startups"
-  | "business"
-  | "work"
-  | "economics"
-  | "money"
-  | "science"
-  | "health"
-  | "mind"
-  | "climate"
-  | "philosophy"
-  | "history"
-  | "politics"
-  | "culture"
-  | "writing"
-  | "learning"
-  | "living"
-  | "unsorted";
+export type TopicKey = string;
 
-export type Topic = {
-  key: TopicKey;
+/** A topic as it is stored and synced. */
+export type TopicRow = {
+  key: string;
   name: string;
+  /** The cloth colour, as #rrggbb. */
+  color: string;
+  emoji: string;
+  /** What belongs here, for the classifier. */
+  hint?: string;
+  /** A line under the topic's name. */
+  blurb?: string;
+  /** Where it stands among the others. */
+  sort: number;
+};
+
+export type Topic = TopicRow & {
   /** Cloth shades: [base, light, deep, pale]. */
   shades: [string, string, string, string];
-  blurb: string;
-  /** What belongs here, for the classifier. */
-  hint: string;
   /** The two inks, for a painted cover in this topic. */
   inks: string;
 };
 
-export const TOPICS: Topic[] = [
-  { key: "ai", name: "AI", shades: ["#5b4a9e", "#7a68bf", "#3b2f6e", "#a597d6"], inks: "deep violet and soft lavender", hint: "machine learning, language models, AI research, AI products and agents", blurb: "Machines that learn: models, agents, research and what it all means." },
-  { key: "programming", name: "Programming", shades: ["#2f4f8f", "#4a6fb3", "#1d3263", "#8aa6d8"], inks: "navy blue and cornflower blue", hint: "software engineering, languages, code, developer tools, open source, engineering practice", blurb: "How software is made, and the people who make it." },
-  { key: "infra", name: "Infrastructure", shades: ["#6b6a2a", "#8b8a43", "#4a491a", "#bdbb7f"], inks: "olive and pale khaki", hint: "systems, cloud, GPUs, inference, databases, distributed systems, performance, devops", blurb: "The machinery underneath: systems, chips, clouds and the bills that come with them." },
-  { key: "data", name: "Data", shades: ["#2a6f8a", "#4a90a8", "#1a4c60", "#8fc0d0"], inks: "petrol blue and pale aqua", hint: "data science, analytics, statistics, visualisation, data engineering", blurb: "Counting things carefully, and showing what the numbers say." },
-  { key: "security", name: "Security", shades: ["#3d4a52", "#5b6a73", "#262f35", "#9aa8b0"], inks: "slate grey and steel blue", hint: "security, privacy, cryptography, attacks, trust", blurb: "Locks, keys, and the people trying both." },
-  { key: "tech", name: "Tech & internet", shades: ["#3e6c9e", "#5e8cbe", "#284b70", "#a3c2e2"], inks: "cobalt and sky blue", hint: "the tech industry, platforms, internet culture, gadgets, big tech news", blurb: "The industry, the platforms and the internet we live on." },
-  { key: "design", name: "Design", shades: ["#c0603a", "#d9805a", "#8f4224", "#efb698"], inks: "coral and apricot", hint: "design, UX, typography, interfaces, craft, architecture", blurb: "How things look, feel and work." },
-  { key: "product", name: "Product", shades: ["#8a5a9e", "#a87abb", "#62406f", "#cfb0dc"], inks: "mauve and lilac", hint: "product management, building products, user research, launches, growth", blurb: "Deciding what to build, and finding out if it worked." },
-  { key: "startups", name: "Startups", shades: ["#a43848", "#c65767", "#782333", "#e39aa5"], inks: "crimson and dusty rose", hint: "startups, founders, fundraising, venture capital, go to market", blurb: "Building things people want, from the first users onward." },
-  { key: "business", name: "Business", shades: ["#7a5230", "#9a7050", "#563820", "#c9a585"], inks: "walnut brown and tan", hint: "companies, strategy, management, markets, competition", blurb: "Companies, strategy and how markets move." },
-  { key: "work", name: "Work & careers", shades: ["#7a4b32", "#9a6a4e", "#563220", "#c9a088"], inks: "chestnut brown and soft peach", hint: "careers, hiring, leadership, teams, productivity at work, remote work", blurb: "Jobs, teams, and doing good work for a long time." },
-  { key: "economics", name: "Economics", shades: ["#40705a", "#5f9078", "#2a4e3e", "#a0c8b4"], inks: "jade green and mint", hint: "economics, policy, trade, labour markets, macro", blurb: "Incentives, trade-offs and how the whole system behaves." },
-  { key: "money", name: "Money", shades: ["#8a7a20", "#a89838", "#5f5410", "#d6ca82"], inks: "old gold and pale brass", hint: "personal finance, investing, markets, crypto", blurb: "Saving, investing and the stories we tell about money." },
-  { key: "science", name: "Science", shades: ["#3a6b45", "#5a8d5e", "#274a30", "#9cc29a"], inks: "forest green and sage", hint: "physics, biology, chemistry, maths, space, research and how science works", blurb: "How the world works, and how we find out." },
-  { key: "health", name: "Health", shades: ["#b5485e", "#cf6a7e", "#86303f", "#eda9b6"], inks: "raspberry red and blush pink", hint: "health, medicine, fitness, nutrition, sleep", blurb: "Bodies, medicine and staying well." },
-  { key: "mind", name: "Mind", shades: ["#4c5fa8", "#6c7ec4", "#33427a", "#aab6e6"], inks: "periwinkle and indigo", hint: "psychology, neuroscience, behaviour, habits, decision making", blurb: "Why we think, feel and decide the way we do." },
-  { key: "climate", name: "Climate & energy", shades: ["#4f7f3a", "#6f9f55", "#355a25", "#aed096"], inks: "leaf green and lime", hint: "climate change, energy, environment, sustainability", blurb: "Energy, the planet and what we do next." },
-  { key: "philosophy", name: "Philosophy", shades: ["#5e4b7a", "#7c6a99", "#3f3154", "#b9acd0"], inks: "plum grey and heather", hint: "philosophy, ethics, religion, meaning, big ideas", blurb: "The old questions, still open." },
-  { key: "history", name: "History", shades: ["#8c5a2b", "#aa7745", "#633e1a", "#d9b48a"], inks: "sepia brown and parchment ochre", hint: "history, biography, how things came to be", blurb: "How we got here." },
-  { key: "politics", name: "Politics & society", shades: ["#9a3a2e", "#b85a4c", "#6e261d", "#e0a196"], inks: "brick red and pale terracotta", hint: "politics, government, law, society, current affairs, cities", blurb: "Power, policy and how we live together." },
-  { key: "culture", name: "Culture", shades: ["#b0447e", "#c9669a", "#82305b", "#e8a9cb"], inks: "magenta and pink", hint: "art, film, music, books, games, media, criticism", blurb: "Art, film, music, games and the things we love." },
-  { key: "writing", name: "Writing", shades: ["#b0502d", "#cc7147", "#86381c", "#e6a580"], inks: "terracotta and burnt orange", hint: "writing, language, storytelling, journalism, communication", blurb: "Words, sentences and the craft of saying things clearly." },
-  { key: "learning", name: "Learning", shades: ["#2c7a76", "#4c9b94", "#1c5654", "#8cc4bd"], inks: "deep teal and pale sea-green", hint: "education, learning, teaching, memory, tools for thought, note-taking", blurb: "How we learn, remember and think with tools." },
-  { key: "living", name: "Living", shades: ["#b0841f", "#cda03a", "#835f15", "#e5c97a"], inks: "mustard ochre and olive green", hint: "life, relationships, attention, time, happiness, personal essays, food, travel", blurb: "Attention, time and the rest of life." },
-  { key: "unsorted", name: "Unsorted", shades: ["#5d5a55", "#7b776f", "#3f3d39", "#aaa59b"], inks: "warm grey and charcoal", hint: "", blurb: "Not shelved yet. Gloss sorts new texts as they arrive." },
-];
+export const UNSORTED = "unsorted";
 
-export const TOPIC = Object.fromEntries(TOPICS.map((t) => [t.key, t])) as Record<TopicKey, Topic>;
-export const isTopic = (v: unknown): v is TopicKey => typeof v === "string" && v in TOPIC;
-export const topicOf = (v: unknown): TopicKey => (isTopic(v) ? v : "unsorted");
+export const DEFAULT_TOPICS: TopicRow[] = [
+  { key: "math", name: "Math", color: "#2f6db5", emoji: "🔢", hint: "arithmetic, numbers, fractions, geometry, measurement, logic puzzles, math games", blurb: "Numbers, shapes and puzzles." },
+  { key: "reading", name: "Reading", color: "#8a4fb0", emoji: "📚", hint: "phonics, reading practice, stories, picture books, comprehension, literature", blurb: "Stories and the practice of reading them." },
+  { key: "writing", name: "Writing", color: "#c0603a", emoji: "✏️", hint: "handwriting, spelling, grammar, typing, composition, poetry", blurb: "Letters, words and sentences." },
+  { key: "science", name: "Science", color: "#2c8a7a", emoji: "🔬", hint: "physics, chemistry, experiments, space, weather, the human body, how things work", blurb: "How the world works, and how we find out." },
+  { key: "nature", name: "Nature and Animals", color: "#4f8a3a", emoji: "🐾", hint: "animals, dogs, birds, insects, plants, trees, ecology, the outdoors, identification", blurb: "Creatures, plants and the outdoors." },
+  { key: "history", name: "History", color: "#8c5a2b", emoji: "🏛️", hint: "history, past civilisations, famous people, timelines, how things came to be", blurb: "How we got here." },
+  { key: "geography", name: "Geography", color: "#2a7aa8", emoji: "🌍", hint: "maps, countries, flags, capitals, continents, oceans, cultures around the world", blurb: "Places, maps and people around the world." },
+  { key: "art", name: "Art", color: "#c4447e", emoji: "🎨", hint: "drawing, painting, crafts, famous artists, colour, design", blurb: "Making things, and looking closely." },
+  { key: "music", name: "Music", color: "#5b4a9e", emoji: "🎵", hint: "songs, instruments, rhythm, reading music, composers", blurb: "Songs, rhythm and instruments." },
+  { key: "coding", name: "Coding", color: "#3d4a5c", emoji: "💻", hint: "programming, computers, logic, robots, typing games, scratch", blurb: "Telling computers what to do." },
+  { key: "languages", name: "Languages", color: "#b0841f", emoji: "🗣️", hint: "foreign languages, vocabulary, sign language, words from other languages", blurb: "Words from other places." },
+  { key: "life", name: "Life Skills", color: "#7a6a2a", emoji: "🧺", hint: "cooking, money, time, chores, health, safety, manners, first aid", blurb: "Everyday things worth knowing." },
+  { key: UNSORTED, name: "Unsorted", color: "#6b675f", emoji: "📦", hint: "", blurb: "Not shelved yet." },
+].map((t, i) => ({ ...t, sort: i }));
+
+/* ---------- colour ---------- */
+
+function rgbOf(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+const hexOf = (rgb: number[]) => `#${rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("")}`;
+
+/** Part of the way from one colour to another. */
+const mix = (a: string, b: string, t: number) => {
+  const x = rgbOf(a), y = rgbOf(b);
+  return hexOf(x.map((v, i) => v + (y[i] - v) * t));
+};
+
+/** A topic's four cloths from its one colour: itself, a lighter, a deeper, and a pale one. */
+export function shadesOf(color: string): [string, string, string, string] {
+  const base = /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : "#6b675f";
+  return [base, mix(base, "#ffffff", 0.2), mix(base, "#000000", 0.3), mix(base, "#ffffff", 0.55)];
+}
+
+function topicFrom(r: TopicRow): Topic {
+  const shades = shadesOf(r.color);
+  return { ...r, shades, inks: `${shades[2]} and ${shades[3]}` };
+}
+
+export const TOPICS: Topic[] = [];
+export const TOPIC: Record<TopicKey, Topic> = {};
+
+/** Replace the current topics. Unsorted is always there, and always last. */
+export function setTopics(rows: TopicRow[]) {
+  const list = rows.filter((r) => r.key && r.key !== UNSORTED).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  const unsorted = rows.find((r) => r.key === UNSORTED) ?? DEFAULT_TOPICS.find((r) => r.key === UNSORTED)!;
+  const all = [...list, unsorted].map(topicFrom);
+  TOPICS.splice(0, TOPICS.length, ...all);
+  for (const k of Object.keys(TOPIC)) delete TOPIC[k];
+  for (const t of all) TOPIC[t.key] = t;
+  looks.clear();
+}
+
+/** A topic's key, from its name: lowercase words joined by dashes, unique among `taken`. */
+export function topicKeyFor(name: string, taken: string[]): string {
+  const base = name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "topic";
+  let key = base;
+  // A tag's key is taken too: the same glyph names both.
+  for (let i = 2; taken.includes(key) || isTag(key); i++) key = `${base}-${i}`;
+  return key;
+}
+
+export const isTopic = (v: unknown): v is TopicKey => typeof v === "string" && Object.hasOwn(TOPIC, v);
+export const topicOf = (v: unknown): TopicKey => (isTopic(v) ? v : UNSORTED);
 
 /** One text as the shelves see it: the shelf entry, with your reading laid over it. */
 export type Book = {
   id: string;
+  /** Read here in the app, or an activity: a link out to another site. */
+  kind: "reading" | "activity";
   title: string;
   author: string;
   year?: number;
@@ -98,12 +125,15 @@ export type Book = {
   finished?: number;
   /** The page's own picture, shown duotone. */
   image?: string;
-  /** A painted cover: a bundled one by path, or "painted" for one made for you. */
+  /** Its cover: an image URL, or "painted" / "uploaded" for one kept on the server. */
   cover?: string;
+  coverRev?: number;
+  /** A cloth colour chosen by hand. */
+  color?: string;
+  /** An activity: when it was last opened on this computer. */
+  opened?: number;
   /** Saved by an agent rather than by hand. */
   agent: boolean;
-  /** A bundled sample: always there, cannot be removed. */
-  sample: boolean;
 };
 
 /* ---------- looks ---------- */
@@ -166,33 +196,33 @@ function hueOf(hex: string) {
 
 const looks = new Map<string, Look>();
 
-export function lookOf(b: Pick<Book, "id" | "topic" | "minutes">): Look {
-  const key = `${b.id}:${b.topic}:${b.minutes}`;
+export const isHex = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+
+/** Activities have no length to read, so they all stand at one width. */
+const ACTIVITY_W = 50;
+
+export function lookOf(b: Pick<Book, "id" | "topic" | "minutes"> & { kind?: Book["kind"]; color?: string }): Look {
+  const key = `${b.id}:${b.topic}:${b.minutes}:${b.kind ?? ""}:${b.color ?? ""}`;
   const hit = looks.get(key);
   if (hit) return hit;
   const r = rng(hash(b.id));
-  const shades = TOPIC[b.topic].shades;
+  const shades = TOPIC[topicOf(b.topic)].shades;
   // Mostly the base and deep cloths; the light and pale ones now and then, for rhythm.
   const pick = r();
-  const color = shades[pick < 0.38 ? 0 : pick < 0.7 ? 2 : pick < 0.88 ? 1 : 3];
+  const color = isHex(b.color) ? b.color.toLowerCase() : shades[pick < 0.38 ? 0 : pick < 0.7 ? 2 : pick < 0.88 ? 1 : 3];
   const light = luminance(color) > 0.3;
   const look: Look = {
     color,
     fg: light ? "#2a2520" : "#f6efe2",
     light,
     style: STYLES[Math.floor(r() * STYLES.length)],
-    w: Math.round(Math.min(74, Math.max(30, 22 + Math.sqrt(b.minutes) * 4.8))),
+    w: b.kind === "activity" ? ACTIVITY_W : Math.round(Math.min(74, Math.max(30, 22 + Math.sqrt(b.minutes) * 4.8))),
     h: Math.round(204 + r() * 54),
     hue: hueOf(color),
   };
   looks.set(key, look);
   return look;
 }
-
-/* ---------- pictures ---------- */
-
-export const topicArtSrc = (k: TopicKey) => `/library/topics/${k}.webp`;
-export const iconSrc = (k: TopicKey | TagKey) => `/library/icons/${k}.webp`;
 
 /* ---------- shelving ---------- */
 
@@ -205,25 +235,27 @@ export const SORTS: { key: Sort; label: string }[] = [
   { key: "length", label: "Length" },
 ];
 
-const TOPIC_ORDER = Object.fromEntries(TOPICS.map((t, i) => [t.key, i])) as Record<TopicKey, number>;
-
 export function sortBooks(books: Book[], sort: Sort): Book[] {
   const by = [...books];
-  if (sort === "topic") by.sort((a, b) => TOPIC_ORDER[a.topic] - TOPIC_ORDER[b.topic] || a.added - b.added);
+  const order = new Map(TOPICS.map((t, i) => [t.key, i]));
+  const at = (k: TopicKey) => order.get(k) ?? TOPICS.length;
+  if (sort === "topic") by.sort((a, b) => at(a.topic) - at(b.topic) || a.added - b.added);
   if (sort === "recent") by.sort((a, b) => b.added - a.added);
   if (sort === "color") by.sort((a, b) => lookOf(a).hue - lookOf(b).hue || lookOf(a).h - lookOf(b).h);
-  if (sort === "length") by.sort((a, b) => a.minutes - b.minutes);
+  // Activities first, then readings from shortest to longest.
+  if (sort === "length") by.sort((a, b) => Number(a.kind !== "activity") - Number(b.kind !== "activity") || a.minutes - b.minutes);
   return by;
 }
 
 /** The label on the shelf under the first book of each run: a topic, a month or a length. */
 export function groupOf(b: Book, sort: Sort): { key: string; label: string; icon?: TopicKey | TagKey } | null {
-  if (sort === "topic") return { key: b.topic, label: TOPIC[b.topic].name, icon: b.topic };
+  if (sort === "topic") return { key: b.topic, label: TOPIC[topicOf(b.topic)].name, icon: topicOf(b.topic) };
   if (sort === "recent") {
     const label = new Date(b.added).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
     return { key: label, label };
   }
   if (sort === "length") {
+    if (b.kind === "activity") return { key: "activities", label: "Activities" };
     if (b.minutes < 10) return { key: "quick", label: "Under 10 min", icon: "quick" };
     if (b.minutes < 30) return { key: "sitting", label: "One sitting" };
     return { key: "long", label: b.minutes < 60 ? "An evening" : "A weekend", icon: "long" };
@@ -233,16 +265,21 @@ export function groupOf(b: Book, sort: Sort): { key: string; label: string; icon
 
 /* ---------- tags you can filter by ---------- */
 
-export type TagKey = "favorite" | "reading" | "finished" | "quick" | "long" | "agent";
+export type TagKey = "favorite" | "now" | "finished" | "quick" | "long" | "agent";
 
 export const TAGS: { key: TagKey; label: string; test: (b: Book) => boolean }[] = [
-  { key: "reading", label: "Reading now", test: (b) => b.pct > 0 && b.pct < 1 },
+  { key: "now", label: "Reading now", test: (b) => b.pct > 0 && b.pct < 1 },
   { key: "favorite", label: "Favourites", test: (b) => b.favorite },
   { key: "finished", label: "Finished", test: (b) => b.pct >= 1 },
-  { key: "quick", label: "Under 10 min", test: (b) => b.minutes < 10 },
-  { key: "long", label: "Long reads", test: (b) => b.minutes >= 45 },
-  { key: "agent", label: "From your agent", test: (b) => b.agent },
+  { key: "quick", label: "Under 10 min", test: (b) => b.kind === "reading" && b.minutes < 10 },
+  { key: "long", label: "Long reads", test: (b) => b.kind === "reading" && b.minutes >= 45 },
+  { key: "agent", label: "Added by an agent", test: (b) => b.agent },
 ];
+
+/** The tags' own emoji, beside the topics'. */
+export const TAG_EMOJI: Record<TagKey, string> = { favorite: "⭐", now: "📖", finished: "✅", quick: "⚡", long: "🌙", agent: "🤖" };
+
+export const isTag = (k: string): k is TagKey => Object.hasOwn(TAG_EMOJI, k);
 
 export const tagsOf = (b: Book) => TAGS.filter((t) => t.key !== "agent" && t.test(b));
 
@@ -270,7 +307,7 @@ export type Shelving = { topic: TopicKey; tags: string[]; scene?: string };
 /** Tags: a few short lowercase words, never the topic's own name. */
 export function cleanTags(v: unknown, topic: TopicKey): string[] {
   if (!Array.isArray(v)) return [];
-  const name = TOPIC[topic].name.toLowerCase();
+  const name = (TOPIC[topic]?.name ?? "").toLowerCase();
   const out: string[] = [];
   for (const t of v) {
     if (typeof t !== "string") continue;
@@ -281,3 +318,6 @@ export function cleanTags(v: unknown, topic: TopicKey): string[] {
   }
   return out;
 }
+
+// The built-in topics until the family's own arrive (from localStorage, the server, or the database).
+setTopics(DEFAULT_TOPICS);

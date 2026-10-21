@@ -3,7 +3,6 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { AlignJustify, AlignLeft, Focus, Headphones, Map as MapIcon, Minus, Paintbrush, Pilcrow, Plus, RotateCcw } from "lucide-react";
-import { MODELS, type ModelKey } from "@/lib/models";
 import { applySettings, DEFAULT_SETTINGS, FACES, MARKERS, PENS, resolveTheme, THEMES, type Settings } from "@/lib/settings";
 import { useStore } from "@/lib/store";
 import { Popover, barBtn } from "./Popover";
@@ -99,7 +98,7 @@ function PaintedCovers() {
         <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink-2">
           <Paintbrush size={13} /> Painted covers
         </p>
-        <p className="mt-0.5 text-[11.5px] leading-snug text-ink-3">A picture for each text in your library, about 2¢ each.</p>
+        <p className="mt-0.5 text-[11.5px] leading-snug text-ink-3">A picture for each book without a cover, from the Settings image model.</p>
       </div>
       <button
         type="button"

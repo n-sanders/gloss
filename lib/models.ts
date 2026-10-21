@@ -1,68 +1,54 @@
 /**
- * The model allow-list and wire types. Safe to import on the client: no keys,
- * no fetches. lib/together.ts does the network side.
- */
-
-export type ModelEntry = {
-  id: string;
-  label: string;
-  short: string;
-  blurb: string;
-  inPerM: number;
-  cachedPerM: number;
-  outPerM: number;
-};
-
-/**
- * The allow-list. Route and UI both read it. Bake-off 2026-10-09: 3 sample
- * texts x 8 tasks on the real prompts, answers scored blind by a judge.
- *   V4.1 Flash  0.23s to first token, $0.0006 an answer, 7.3/10, best in 11 of 24
- *   V4 Pro      0.58s, $0.0052, 6.5/10
- *   Kimi K3     0.86s, $0.0096, 6.3/10 (best gloss summaries, weak on Related)
- *   GLM-5.3     0.36s at reasoning_effort low, $0.0048, 6.3/10, 3 of the 4 factual errors
- * GLM-5.3 ignores every thinking-off flag (default effort: a 60s summary).
- * Also left out: Qwen3.8 (prints its reasoning into content with thinking off).
+ * Which model does what, and the wire types. Safe to import on the client: no
+ * keys, no fetches. lib/openrouter.ts does the network side, and
+ * lib/model-config.ts picks the model for each slot on the server.
  *
- * Flash won on quality as well as speed and cost, so it answers everything:
- * there was a "Deep" choice (V4 Pro, then Kimi K3) and it was dropped
- * 2026-10-09. Older answers and settings may still name "pro"; anything that
- * looks a model up goes through modelOf(), which falls back to Flash.
+ * Every model is reached through OpenRouter, by its OpenRouter id
+ * ("vendor/model"). Each slot is set, in order, by the family's Settings
+ * (kept in SQLite), then an environment variable, then the default here.
  */
-export const MODELS = {
-  flash: {
-    id: "deepseek-ai/DeepSeek-V4.1-Flash",
-    label: "DeepSeek V4.1 Flash",
-    short: "Quick",
-    blurb: "Answers in about half a second. Best for most questions.",
-    inPerM: 0.3,
-    cachedPerM: 0.006,
-    outPerM: 1.2,
-  },
-} as const satisfies Record<string, ModelEntry>;
 
-export type ModelKey = keyof typeof MODELS;
-export const DEFAULT_MODEL: ModelKey = "flash";
+export type Slot = "chat" | "structured" | "vision" | "image";
 
-export function isModelKey(v: unknown): v is ModelKey {
-  return typeof v === "string" && v in MODELS;
+export const SLOTS: { key: Slot; label: string; blurb: string; env: string; fallback: string; needs?: "image-in" | "image-out" }[] = [
+  { key: "chat", label: "Answers", blurb: "Questions and notes in the margin while reading.", env: "OPENROUTER_MODEL_CHAT", fallback: "google/gemini-2.5-flash" },
+  { key: "structured", label: "Sorting and summaries", blurb: "The whole-text gloss, and sorting new books onto topics.", env: "OPENROUTER_MODEL_STRUCTURED", fallback: "google/gemini-2.5-flash" },
+  { key: "vision", label: "Reading scanned pages", blurb: "PDF pages that are pictures of text.", env: "OPENROUTER_MODEL_VISION", fallback: "google/gemini-2.5-flash", needs: "image-in" },
+  { key: "image", label: "Painted covers", blurb: "A picture for a book's cover.", env: "OPENROUTER_MODEL_IMAGE", fallback: "google/gemini-2.5-flash-image", needs: "image-out" },
+];
+
+export const isSlot = (v: unknown): v is Slot => typeof v === "string" && SLOTS.some((s) => s.key === v);
+
+/** A model from OpenRouter's list, as the Settings picker shows it. Prices in dollars per million tokens. */
+export type ModelOption = { id: string; name: string; input: string[]; output: string[]; promptPerM?: number; completionPerM?: number };
+
+/** Whether a model can do a slot's job. */
+export function fitsSlot(m: ModelOption, needs?: "image-in" | "image-out"): boolean {
+  if (needs === "image-out") return m.output.includes("image");
+  if (needs === "image-in") return m.input.includes("image") && m.output.includes("text");
+  return m.output.includes("text");
 }
 
-/** A model key that is still on the list: a saved "pro" from before Deep was dropped becomes Flash. */
-export const modelOf = (v: unknown): ModelKey => (isModelKey(v) ? v : DEFAULT_MODEL);
+/**
+ * What answers are asked for. There is one answering model, chosen in
+ * Settings; the key stays on turns and briefs that older builds saved.
+ */
+export type ModelKey = "chat";
+export const DEFAULT_MODEL: ModelKey = "chat";
+export const MODELS: Record<ModelKey, { label: string }> = { chat: { label: "AI" } };
+export const isModelKey = (v: unknown): v is ModelKey => v === "chat";
+export const modelOf = (_v: unknown): ModelKey => DEFAULT_MODEL;
+
+/** A model id as a short name for the margin: "google/gemini-2.5-flash" reads "gemini-2.5-flash". */
+export const modelLabel = (id: string) => id.split("/").pop() || id;
 
 export type Usage = {
   promptTokens: number;
   cachedTokens: number;
   completionTokens: number;
+  /** What OpenRouter billed, in dollars. */
   costUsd: number;
 };
-
-/** Dollars for a run. Cached prompt tokens bill at the cached rate. */
-export function costFor(key: ModelKey, prompt: number, cached: number, completion: number): number {
-  const m: ModelEntry = MODELS[key];
-  const fresh = Math.max(0, prompt - cached);
-  return (fresh * m.inPerM + cached * m.cachedPerM + completion * m.outPerM) / 1_000_000;
-}
 
 /** A web result an answer can cite as [n]. */
 export type Source = { n: number; title: string; url: string; site: string; date?: string };
