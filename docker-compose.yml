@@ -9,6 +9,13 @@ services:
       - "3100:3100"
     volumes:
       - gloss-data:/data
+    networks:
+      - default
+      - web-core_default
 
 volumes:
   gloss-data:
+
+networks:
+  web-core_default:
+    external: true
