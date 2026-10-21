@@ -5,6 +5,7 @@
 
 import { getSetting } from "./db";
 import { SLOTS, type Slot } from "./models";
+import { openRouterKey } from "./secrets";
 
 export const settingKey = (slot: Slot) => `model:${slot}`;
 export const LIBRARY_NAME_KEY = "library:name";
@@ -24,4 +25,4 @@ export function modelFor(slot: Slot): string {
   return saved?.trim() || envModel(slot);
 }
 
-export const aiConfigured = () => Boolean(process.env.OPENROUTER_API_KEY?.trim());
+export const aiConfigured = () => Boolean(openRouterKey());

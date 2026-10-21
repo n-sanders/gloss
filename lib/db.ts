@@ -49,7 +49,7 @@ create table if not exists agent_tokens (
   revoked integer not null default 0
 );
 
--- Small key/value settings shared by the family: model choices, the library's name.
+-- Small key/value settings shared by the family: model choices, the library's name, the passphrase, the signing secret and API keys.
 create table if not exists settings (
   key text primary key,
   value text not null

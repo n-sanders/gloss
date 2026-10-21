@@ -10,17 +10,19 @@ There are no accounts. One passphrase unlocks the site, and each computer stays 
 ## What it uses
 
 - Next.js and SQLite (Node's built-in `node:sqlite`), with no database server to run.
-- [OpenRouter](https://openrouter.ai) for the AI. Each job (answers, sorting and summaries, scanned PDF pages, painted covers) can use a different model, chosen in Settings. This is optional.
-- [Exa](https://exa.ai) for web search in answers. This is optional.
+- [OpenRouter](https://openrouter.ai) for the AI. The key, and which model does each job (answers, sorting and summaries, scanned PDF pages, painted covers), are set in Settings. This is optional.
+- [Exa](https://exa.ai) for web search in answers. The key is set in Settings. This is optional.
 - The browser's own voices for read-aloud. [LiteParse](https://github.com/run-llama/liteparse) reads PDFs in the browser.
 
 ## Running it on your own computer (no Docker)
 
 You need Node 24 or newer.
 
-1. Copy `.env.example` to `.env.local` and fill in what you want. Everything is optional for local use. With no `FAMILY_PASSPHRASE` set, the site is open.
-2. `npm install`
-3. `npm run dev`, then open http://localhost:3100
+1. `npm install`
+2. `npm run dev`, then open http://localhost:3100
+3. The first time, the passphrase is `gloss`. Change it in Settings. Paste an OpenRouter key there if you want the AI, and an Exa key if you want answers to look things up.
+
+An env file is optional. `.env.example` lists the overrides. A value in the environment is used only until Settings saves one of its own.
 
 For a production build without Docker, run `npm run build` and then `npm start`. The database is created on first use at `./data/gloss.db`, or under `DATA_DIR` if you set it.
 
@@ -28,25 +30,22 @@ For a production build without Docker, run `npm run build` and then `npm start`.
 
 On the server:
 
-1. Copy `.env.example` to `.env` and set at least these:
-   - `FAMILY_PASSPHRASE`: what the family types once on each computer.
-   - `SESSION_SECRET`: a long random string. Make one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`.
-   - `OPENROUTER_API_KEY` and `EXA_API_KEY`, if you want the AI features.
-2. `docker compose up -d --build`
-3. Open `http://<server>:3100` and type the passphrase.
+1. `docker compose up -d --build`
+2. Open `http://<server>:3100`. The passphrase starts as `gloss`.
+3. In Settings, change the passphrase. Add an OpenRouter key, and an Exa key if you want answers to look things up.
 
-The database lives in the `gloss-data` volume, mounted at `/data`. Rebuilding or upgrading the container keeps it.
+The database lives in the `gloss-data` volume, mounted at `/data`. Rebuilding or upgrading the container keeps it. A `.env` file next to the compose file is optional; see `.env.example`.
 
 Some notes:
 
 - **HTTPS.** Behind a reverse proxy that serves HTTPS (Caddy, Traefik, nginx), the unlock cookie is marked Secure automatically, as long as the proxy passes on `X-Forwarded-Proto`. On plain HTTP inside the home network it works as-is. Set `COOKIE_SECURE=true` to force Secure.
 - **Staying unlocked.** Browsers cap a cookie's life at about 400 days, so every visit renews it. A computer used at least once a year stays unlocked.
-- **Signing everyone out.** Change `FAMILY_PASSPHRASE` or `SESSION_SECRET` and restart. Every computer will ask for the passphrase again.
-- **Upgrading.** `git pull`, then `docker compose up -d --build`.
+- **Signing everyone out.** Change the passphrase in Settings, or press **Sign every computer out**. Every other computer asks for the passphrase again. The one you used stays unlocked.
+- **Upgrading.** `git pull`, then `docker compose up -d --build`. If no passphrase was set, the library starts locked and the passphrase is `gloss`. If no signing secret was set, every computer that was already unlocked asks for the passphrase once.
 
 ### Backups
 
-All of the shared library is in one SQLite file: books, the text of readings, topics, covers, settings and agent connections. Back up the volume with:
+All of the shared library is in one SQLite file: books, the text of readings, topics, covers, settings (including the passphrase, the signing secret and the API keys) and agent connections. Back up the volume with:
 
 ```sh
 docker run --rm -v gloss-data:/data -v "$PWD":/backup node:24-slim \
