@@ -105,8 +105,8 @@ function TopicRowEditor({ topic: t, books, first, last, onChange, onMove, onRemo
         }}
         className="size-10 shrink-0 rounded-xl border border-rule bg-transparent text-center text-[20px] outline-none focus:border-rule-strong"
       />
-      <label className="relative size-10 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-rule" style={{ background: t.color }} data-tip="Colour">
-        <input type="color" value={t.color} aria-label={`${t.name} colour`} onChange={(e) => commit({ color: e.target.value })} className="absolute inset-0 size-full cursor-pointer opacity-0" />
+      <label className="relative size-10 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-rule" style={{ background: t.color }} data-tip="Color">
+        <input type="color" value={t.color} aria-label={`${t.name} color`} onChange={(e) => commit({ color: e.target.value })} className="absolute inset-0 size-full cursor-pointer opacity-0" />
       </label>
       <div className="min-w-0 flex-1 basis-56">
         <input

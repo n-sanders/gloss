@@ -5,7 +5,7 @@ import type { Action } from "./actions";
 import type { Article, BriefData } from "./article";
 import { modelOf, type ModelKey, type Source, type Usage } from "./models";
 import { DEFAULT_SETTINGS, SETTINGS_KEY, type Marker, type Settings } from "./settings";
-import { DEFAULT_TOPICS, setTopics, UNSORTED, type TopicRow } from "./library";
+import { DEFAULT_TOPICS, setTopics, spellTopics, UNSORTED, type TopicRow } from "./library";
 
 /** A point in the text: block id and a character offset into its plain text. */
 export type Point = { b: string; o: number };
@@ -166,7 +166,7 @@ type State = Persisted &
   };
 
 /** What the family's topics are, as rows: the synced ones, or the built-in ones before the first sync. */
-export const topicRowsOf = (rows: TopicRow[]) => (rows.length ? rows : DEFAULT_TOPICS);
+export const topicRowsOf = (rows: TopicRow[]) => (rows.length ? spellTopics(rows) : DEFAULT_TOPICS);
 
 const KEY = "gloss:v1";
 const DOC_PREFIX = "gloss:doc:";
@@ -228,7 +228,7 @@ export const useStore = create<State>((set, get) => ({
       const { finishedAt: _, ...rest } = x;
       return rest;
     });
-    const topics = Array.isArray(data.topics) ? data.topics : [];
+    const topics = spellTopics(Array.isArray(data.topics) ? data.topics : []);
     setTopics(topicRowsOf(topics));
     set({
       topics,
@@ -395,6 +395,7 @@ export const useStore = create<State>((set, get) => ({
           topics = topics.filter((x) => x.key !== r.id);
           if (!r.deleted && r.data?.name) topics = [...topics, { ...r.data, key: r.id }];
         }
+        topics = spellTopics(topics);
         setTopics(topicRowsOf(topics));
       }
       return { library, topics };
@@ -403,7 +404,7 @@ export const useStore = create<State>((set, get) => ({
   saveTopic: (row) =>
     set((st) => {
       const base = topicRowsOf(st.topics);
-      const topics = base.some((x) => x.key === row.key) ? base.map((x) => (x.key === row.key ? row : x)) : [...base, { ...row, sort: Math.max(0, ...base.filter((x) => x.key !== UNSORTED).map((x) => x.sort + 1)) }];
+      const topics = spellTopics(base.some((x) => x.key === row.key) ? base.map((x) => (x.key === row.key ? row : x)) : [...base, { ...row, sort: Math.max(0, ...base.filter((x) => x.key !== UNSORTED).map((x) => x.sort + 1)) }]);
       setTopics(topics);
       return { topics };
     }),

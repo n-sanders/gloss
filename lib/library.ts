@@ -42,15 +42,28 @@ export const DEFAULT_TOPICS: TopicRow[] = [
   { key: "writing", name: "Writing", color: "#c0603a", emoji: "✏️", hint: "handwriting, spelling, grammar, typing, composition, poetry", blurb: "Letters, words and sentences." },
   { key: "science", name: "Science", color: "#2c8a7a", emoji: "🔬", hint: "physics, chemistry, experiments, space, weather, the human body, how things work", blurb: "How the world works, and how we find out." },
   { key: "nature", name: "Nature and Animals", color: "#4f8a3a", emoji: "🐾", hint: "animals, dogs, birds, insects, plants, trees, ecology, the outdoors, identification", blurb: "Creatures, plants and the outdoors." },
-  { key: "history", name: "History", color: "#8c5a2b", emoji: "🏛️", hint: "history, past civilisations, famous people, timelines, how things came to be", blurb: "How we got here." },
+  { key: "history", name: "History", color: "#8c5a2b", emoji: "🏛️", hint: "history, past civilizations, famous people, timelines, how things came to be", blurb: "How we got here." },
   { key: "geography", name: "Geography", color: "#2a7aa8", emoji: "🌍", hint: "maps, countries, flags, capitals, continents, oceans, cultures around the world", blurb: "Places, maps and people around the world." },
-  { key: "art", name: "Art", color: "#c4447e", emoji: "🎨", hint: "drawing, painting, crafts, famous artists, colour, design", blurb: "Making things, and looking closely." },
+  { key: "art", name: "Art", color: "#c4447e", emoji: "🎨", hint: "drawing, painting, crafts, famous artists, color, design", blurb: "Making things, and looking closely." },
   { key: "music", name: "Music", color: "#5b4a9e", emoji: "🎵", hint: "songs, instruments, rhythm, reading music, composers", blurb: "Songs, rhythm and instruments." },
   { key: "coding", name: "Coding", color: "#3d4a5c", emoji: "💻", hint: "programming, computers, logic, robots, typing games, scratch", blurb: "Telling computers what to do." },
   { key: "languages", name: "Languages", color: "#b0841f", emoji: "🗣️", hint: "foreign languages, vocabulary, sign language, words from other languages", blurb: "Words from other places." },
   { key: "life", name: "Life Skills", color: "#7a6a2a", emoji: "🧺", hint: "cooking, money, time, chores, health, safety, manners, first aid", blurb: "Everyday things worth knowing." },
   { key: UNSORTED, name: "Unsorted", color: "#6b675f", emoji: "📦", hint: "", blurb: "Not shelved yet." },
 ].map((t, i) => ({ ...t, sort: i }));
+
+/** Exact hints from before the American spelling. An edited hint is left alone. */
+const BRITISH_HINTS: Record<string, string> = {
+  "history, past civilisations, famous people, timelines, how things came to be": "history, past civilizations, famous people, timelines, how things came to be",
+  "drawing, painting, crafts, famous artists, colour, design": "drawing, painting, crafts, famous artists, color, design",
+};
+
+export function spellTopics(rows: TopicRow[]): TopicRow[] {
+  return rows.map((row) => {
+    const hint = row.hint && BRITISH_HINTS[row.hint];
+    return hint ? { ...row, hint } : row;
+  });
+}
 
 /* ---------- colour ---------- */
 
@@ -231,7 +244,7 @@ export type Sort = "topic" | "recent" | "color" | "length";
 export const SORTS: { key: Sort; label: string }[] = [
   { key: "topic", label: "Topic" },
   { key: "recent", label: "Recent" },
-  { key: "color", label: "Colour" },
+  { key: "color", label: "Color" },
   { key: "length", label: "Length" },
 ];
 
@@ -269,7 +282,7 @@ export type TagKey = "favorite" | "now" | "finished" | "quick" | "long" | "agent
 
 export const TAGS: { key: TagKey; label: string; test: (b: Book) => boolean }[] = [
   { key: "now", label: "Reading now", test: (b) => b.pct > 0 && b.pct < 1 },
-  { key: "favorite", label: "Favourites", test: (b) => b.favorite },
+  { key: "favorite", label: "Favorites", test: (b) => b.favorite },
   { key: "finished", label: "Finished", test: (b) => b.pct >= 1 },
   { key: "quick", label: "Under 10 min", test: (b) => b.kind === "reading" && b.minutes < 10 },
   { key: "long", label: "Long reads", test: (b) => b.kind === "reading" && b.minutes >= 45 },

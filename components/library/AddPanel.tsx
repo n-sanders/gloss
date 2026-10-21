@@ -408,7 +408,7 @@ function AgentIntro() {
   );
 }
 
-const PROMPT = "Find three free, ad-light websites where a nine-year-old can practise fractions, and save each one to our Gloss library as an activity, with a short description.";
+const PROMPT = "Find three free, ad-light websites where a nine-year-old can practice fractions, and save each one to our Gloss library as an activity, with a short description.";
 
 function Setup({ token, label, origin }: { token: string; label: string; origin: string }) {
   const url = `${origin}/mcp`;

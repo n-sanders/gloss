@@ -56,7 +56,7 @@ function where(t: ThreadPayload): string {
 
 const TASKS: Record<Exclude<Action, "ask">, string> = {
   explain:
-    "Explain what this passage means and what work it is doing at this point in the text. If it names a person, organisation, place or work, say who or what it is. If it uses archaic phrasing or a metaphor, unpack it; if it does not, do not mention it. 2 to 4 sentences.",
+    "Explain what this passage means and what work it is doing at this point in the text. If it names a person, organization, place or work, say who or what it is. If it uses archaic phrasing or a metaphor, unpack it; if it does not, do not mention it. 2 to 4 sentences.",
   define:
     "Define this as it is used here, in one or two sentences. Only if it is archaic, technical or used in an unusual sense, say so and give the plain modern equivalent. Never remark that a word is standard, common or not archaic.",
   simplify:
@@ -92,7 +92,7 @@ export type LengthKey = keyof typeof LENGTHS;
 export const isLengthKey = (v: unknown): v is LengthKey => typeof v === "string" && v in LENGTHS;
 
 /** When web_search is offered: when to use it, and how. After the text, so the cached prefix is unchanged. */
-const TOOL_NOTE = `You can call web_search. Use it when the question turns on something the text does not explain: a specific person, organisation, place, work or event named in the selection, or anything that may have changed since the text was written. Do not use it for what the text says or for plain word meanings. If you use it, call it straight away, with no words before the call. Cite what a result says as [1], [2] and keep [¶n] for the text.`;
+const TOOL_NOTE = `You can call web_search. Use it when the question turns on something the text does not explain: a specific person, organization, place, work or event named in the selection, or anything that may have changed since the text was written. Do not use it for what the text says or for plain word meanings. If you use it, call it straight away, with no words before the call. Cite what a result says as [1], [2] and keep [¶n] for the text.`;
 
 export function buildMessages(
   doc: DocPayload,

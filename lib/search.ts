@@ -20,7 +20,7 @@ export const WEB_TOOL = {
   function: {
     name: "web_search",
     description:
-      "Search the web for facts the text does not give: who a named person, organisation or place is, what a named work, event or term refers to, or what has happened since the text was written. Do not search for what the text itself says.",
+      "Search the web for facts the text does not give: who a named person, organization or place is, what a named work, event or term refers to, or what has happened since the text was written. Do not search for what the text itself says.",
     parameters: {
       type: "object",
       properties: { query: { type: "string", description: "What to look up, in a few words, e.g. \"Alan G. Chynoweth Bellcore physicist\"" } },

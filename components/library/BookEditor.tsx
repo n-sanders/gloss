@@ -248,16 +248,16 @@ export function BookEditor({ item, isNew, onClose }: { item: LibraryItem; isNew:
               </Field>
             </div>
 
-            <Field label="Colour" group>
-              <div className="be-swatches" role="radiogroup" aria-label="Colour">
-                <button type="button" role="radio" aria-checked={!d.color} onClick={() => set({ color: undefined })} className="be-swatch is-auto" style={{ background: autoLook.color }} data-tip="The topic's colour">
+            <Field label="Color" group>
+              <div className="be-swatches" role="radiogroup" aria-label="Color">
+                <button type="button" role="radio" aria-checked={!d.color} onClick={() => set({ color: undefined })} className="be-swatch is-auto" style={{ background: autoLook.color }} data-tip="The topic's color">
                   <span>Auto</span>
                 </button>
                 {swatches.map((c) => (
                   <button key={c} type="button" role="radio" aria-checked={d.color === c} aria-label={c} onClick={() => set({ color: c })} className="be-swatch" style={{ background: c }} />
                 ))}
-                <label className="be-swatch is-custom" data-tip="Any colour" aria-checked={Boolean(d.color && !swatches.includes(d.color))}>
-                  <input type="color" value={isHex(d.color) ? d.color : look.color} onChange={(e) => set({ color: e.target.value })} aria-label="Any colour" />
+                <label className="be-swatch is-custom" data-tip="Any color" aria-checked={Boolean(d.color && !swatches.includes(d.color))}>
+                  <input type="color" value={isHex(d.color) ? d.color : look.color} onChange={(e) => set({ color: e.target.value })} aria-label="Any color" />
                 </label>
               </div>
             </Field>
