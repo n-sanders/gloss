@@ -8,6 +8,9 @@ import { startSync } from "@/lib/sync";
 export function SyncAgent() {
   useEffect(() => {
     useStore.getState().hydrate();
+    // The unlock page has no cookie yet. Syncing there always 401s, and the
+    // recovery navigation reloads this same page.
+    if (location.pathname === "/unlock") return;
     const s = startSync();
     return () => s.stop();
   }, []);

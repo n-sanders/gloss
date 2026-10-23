@@ -156,7 +156,11 @@ export function startSync() {
     const q = base.since ? `?since=${encodeURIComponent(new Date(Date.parse(base.since) - OVERLAP_MS).toISOString())}` : "";
     const res = await fetch(`/api/sync${q}`);
     // The passphrase changed since this computer unlocked: ask for the new one.
-    if (res.status === 401) window.location.assign(`/unlock?next=${encodeURIComponent(location.pathname)}`);
+    // Already on the unlock page, this would assign the same address and reload forever.
+    if (res.status === 401) {
+      if (location.pathname !== "/unlock") window.location.assign(`/unlock?next=${encodeURIComponent(location.pathname + location.search)}`);
+      throw new Error("locked");
+    }
     if (!res.ok) throw new Error(`pull ${res.status}`);
     const { now, changes } = (await res.json()) as { now: string; changes: RemoteChanges };
 
